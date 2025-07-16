@@ -8,6 +8,7 @@ use @EVP_MD_CTX_create[Pointer[_EVPCTX]]() if not "openssl_1.1.x" or "openssl_3.
 use @EVP_DigestInit_ex[I32](ctx: Pointer[_EVPCTX] tag, t: Pointer[_EVPMD], impl: USize)
 use @EVP_DigestUpdate[I32](ctx: Pointer[_EVPCTX] tag, d: Pointer[U8] tag, cnt: USize)
 use @EVP_DigestFinal_ex[I32](ctx: Pointer[_EVPCTX] tag, md: Pointer[U8] tag, s: Pointer[USize])
+use @EVP_DigestFinalXOF[I32](ctx: Pointer[_EVPCTX] tag, md: Pointer[U8] tag, len: USize) if "openssl_3.0.x"
 use @EVP_MD_CTX_free[None](ctx: Pointer[_EVPCTX]) if "openssl_1.1.x" or "openssl_3.0.x"
 use @EVP_MD_CTX_destroy[None](ctx: Pointer[_EVPCTX]) if not "openssl_1.1.x" or "openssl_3.0.x"
 
@@ -31,12 +32,14 @@ class Digest
   """
   let _digest_size: USize
   let _ctx: Pointer[_EVPCTX]
+  let _variable_length: Bool
   var _hash: (Array[U8] val | None) = None
 
   new md5() =>
     """
     Use the MD5 algorithm to calculate the hash.
     """
+    _variable_length = false
     _digest_size = 16
     ifdef "openssl_1.1.x" or "openssl_3.0.x" then
       _ctx = @EVP_MD_CTX_new()
@@ -49,6 +52,7 @@ class Digest
     """
     Use the RIPEMD160 algorithm to calculate the hash.
     """
+    _variable_length = false
     _digest_size = 20
     ifdef "openssl_1.1.x" or "openssl_3.0.x" then
       _ctx = @EVP_MD_CTX_new()
@@ -61,6 +65,7 @@ class Digest
     """
     Use the SHA1 algorithm to calculate the hash.
     """
+    _variable_length = false
     _digest_size = 20
     ifdef "openssl_1.1.x" or "openssl_3.0.x" then
       _ctx = @EVP_MD_CTX_new()
@@ -73,6 +78,7 @@ class Digest
     """
     Use the SHA256 algorithm to calculate the hash.
     """
+    _variable_length = false
     _digest_size = 28
     ifdef "openssl_1.1.x" or "openssl_3.0.x" then
       _ctx = @EVP_MD_CTX_new()
@@ -85,6 +91,7 @@ class Digest
     """
     Use the SHA256 algorithm to calculate the hash.
     """
+    _variable_length = false
     _digest_size = 32
     ifdef "openssl_1.1.x" or "openssl_3.0.x" then
       _ctx = @EVP_MD_CTX_new()
@@ -97,6 +104,7 @@ class Digest
     """
     Use the SHA384 algorithm to calculate the hash.
     """
+    _variable_length = false
     _digest_size = 48
     ifdef "openssl_1.1.x" or "openssl_3.0.x" then
       _ctx = @EVP_MD_CTX_new()
@@ -109,6 +117,7 @@ class Digest
     """
     Use the SHA512 algorithm to calculate the hash.
     """
+    _variable_length = false
     _digest_size = 64
     ifdef "openssl_1.1.x" or "openssl_3.0.x" then
       _ctx = @EVP_MD_CTX_new()
@@ -123,6 +132,11 @@ class Digest
     """
     _digest_size = 16
     ifdef "openssl_1.1.x" or "openssl_3.0.x" then
+      ifdef not "openssl_3.0.x" then
+        _variable_length = false
+      else
+        _variable_length = true
+      end
       _ctx = @EVP_MD_CTX_new()
       @EVP_DigestInit_ex(_ctx, @EVP_shake128(), USize(0))
     else
@@ -135,6 +149,11 @@ class Digest
     """
     _digest_size = 32
     ifdef "openssl_1.1.x" or "openssl_3.0.x" then
+      ifdef not "openssl_3.0.x" then
+        _variable_length = false
+      else
+        _variable_length = true
+      end
       _ctx = @EVP_MD_CTX_new()
       @EVP_DigestInit_ex(_ctx, @EVP_shake256(), USize(0))
     else
@@ -161,7 +180,15 @@ class Digest
         recover String.from_cpointer(
           @pony_alloc(@pony_ctx(), size), size)
         end
-      @EVP_DigestFinal_ex(_ctx, digest.cpointer(), Pointer[USize])
+      if not _variable_length then
+        @EVP_DigestFinal_ex(_ctx, digest.cpointer(), Pointer[USize])
+      else
+        ifdef "openssl_3.0.x" then
+          @EVP_DigestFinalXOF(_ctx, digest.cpointer(), size)
+        else
+          @EVP_DigestFinal_ex(_ctx, digest.cpointer(), Pointer[USize])
+        end
+      end
       ifdef "openssl_1.1.x" or "openssl_3.0.x" then
         @EVP_MD_CTX_free(_ctx)
       else
