@@ -1,0 +1,7 @@
+build/*
+TAGS
+tags
+.deps/*
+/*.lib
+.vscode
+lock.json
