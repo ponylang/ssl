@@ -1,6 +1,7 @@
 {
   "deps": [],
   "packages": [
+    "ssl",
     "ssl/crypto",
     "ssl/net"
   ],
