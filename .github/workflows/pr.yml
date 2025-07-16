@@ -1,0 +1,106 @@
+name: PR
+
+on: pull_request
+
+concurrency:
+  group: pr-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  packages: read
+
+jobs:
+  superlinter:
+    name: Lint bash, docker, markdown, and yaml
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4.1.1
+      - name: Lint codebase
+        uses: docker://github/super-linter:v3.8.3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VALIDATE_ALL_CODEBASE: true
+          VALIDATE_BASH: true
+          VALIDATE_DOCKERFILE: true
+          VALIDATE_MD: true
+          VALIDATE_YAML: true
+
+  verify-changelog:
+    name: Verify CHANGELOG is valid
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4.1.1
+      - name: Verify CHANGELOG
+        uses: docker://ghcr.io/ponylang/changelog-tool:release
+        with:
+          args: changelog-tool verify
+
+  test-libressl-3-vs-ponyc-release:
+    name: LibreSSL 3.x with most recent ponyc release
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/ponylang/shared-docker-ci-x86-64-unknown-linux-builder-with-libressl-3.9.2:release
+    steps:
+      - uses: actions/checkout@v4.1.1
+      - name: Test
+        run: make test config=debug ssl=0.9.0
+
+  test-libressl-4-vs-ponyc-release:
+    name: LibreSSL 4.x with most recent ponyc release
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/ponylang/shared-docker-ci-x86-64-unknown-linux-builder-with-libressl-4.0.0:release
+    steps:
+      - uses: actions/checkout@v4.1.1
+      - name: Test
+        run: make test config=debug ssl=0.9.0
+
+  test-openssl-1-vs-ponyc-release:
+    name: OpenSSL 1.x with most recent ponyc release
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/ponylang/shared-docker-ci-x86-64-unknown-linux-builder-with-openssl_1.1.1w:release
+    steps:
+      - uses: actions/checkout@v4.1.1
+      - name: Test
+        run: make test config=debug ssl=1.1.x
+
+  test-openssl-3-vs-ponyc-release:
+    name: OpenSSL 3.x with most recent ponyc release
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/ponylang/shared-docker-ci-x86-64-unknown-linux-builder-with-openssl_3.3.2:release
+    steps:
+      - uses: actions/checkout@v4.1.1
+      - name: Test
+        run: make test config=debug ssl=3.0.x
+
+  test-x86-64-windows-vs-ponyc-release:
+    name: Windows x86-64 (LibreSSL) with most recent ponyc release
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v4.1.1
+      - name: Test with most recent ponyc release
+        run: |
+          Invoke-WebRequest https://dl.cloudsmith.io/public/ponylang/releases/raw/versions/latest/ponyc-x86-64-pc-windows-msvc.zip -OutFile C:\ponyc.zip;
+          Expand-Archive -Force -Path C:\ponyc.zip -DestinationPath C:\ponyc;
+          Invoke-WebRequest https://dl.cloudsmith.io/public/ponylang/releases/raw/versions/latest/corral-x86-64-pc-windows-msvc.zip -OutFile C:\corral.zip;
+          Expand-Archive -Force -Path C:\corral.zip -DestinationPath C:\ponyc;
+          $env:PATH = 'C:\ponyc\bin;' + $env:PATH;
+          .\make.ps1 -Command libs 2>&1;
+          .\make.ps1 -Command test 2>&1;
+
+  test-arm64-windows-vs-ponyc-release:
+    name: Windows arm64 (LibreSSL) with most recent ponyc release
+    runs-on: windows-11-arm
+    steps:
+      - uses: actions/checkout@v4.1.1
+      - name: Test with most recent ponyc release
+        run: |
+          Invoke-WebRequest https://dl.cloudsmith.io/public/ponylang/nightlies/raw/versions/latest/ponyc-arm64-pc-windows-msvc.zip -OutFile C:\ponyc.zip;
+          Expand-Archive -Force -Path C:\ponyc.zip -DestinationPath C:\ponyc;
+          Invoke-WebRequest https://dl.cloudsmith.io/public/ponylang/nightlies/raw/versions/latest/corral-arm64-pc-windows-msvc.zip -OutFile C:\corral.zip;
+          Expand-Archive -Force -Path C:\corral.zip -DestinationPath C:\ponyc;
+          $env:PATH = 'C:\ponyc\bin;' + $env:PATH;
+          .\make.ps1 -Command libs 2>&1;
+          .\make.ps1 -Command test 2>&1;
