@@ -6,6 +6,7 @@ All notable changes to this project will be documented in this file. This projec
 
 ### Fixed
 
+- Update Shake128 and Shake256 to work with OpenSSL 3.4 ([PR #5](https://github.com/ponylang/ssl/pull/5))
 
 ### Added
 
