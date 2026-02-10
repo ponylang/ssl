@@ -6,6 +6,7 @@ All notable changes to this project will be documented in this file. This projec
 
 ### Fixed
 
+- Fix set_client_verify(false) not disabling hostname verification ([PR #12](https://github.com/ponylang/ssl/pull/12))
 
 ### Added
 
