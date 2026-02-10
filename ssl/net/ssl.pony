@@ -43,6 +43,7 @@ class SSL
   to any transport layer.
   """
   let _hostname: String
+  let _verify: Bool
   var _ssl: Pointer[_SSL]
   var _input: Pointer[_BIO] tag
   var _output: Pointer[_BIO] tag
@@ -61,6 +62,7 @@ class SSL
     """
     if ctx.is_null() then error end
     _hostname = hostname
+    _verify = verify
 
     _ssl = @SSL_new(ctx)
     if _ssl.is_null() then error end
@@ -259,7 +261,7 @@ class SSL
     """
     Verify that the certificate is valid for the given hostname.
     """
-    if _hostname.size() > 0 then
+    if _verify and (_hostname.size() > 0) then
       let cert = ifdef "openssl_3.0.x" then
         @SSL_get1_peer_certificate(_ssl)
       elseif "openssl_1.1.x" or "openssl_0.9.0" then

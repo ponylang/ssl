@@ -15,6 +15,7 @@ actor \nodoc\ Main is TestList
     test(_TestTCPSSLExpect)
     test(_TestTCPSSLMute)
     test(_TestTCPSSLUnmute)
+    test(_TestTCPSSLClientVerifyFalseWithHostname)
     ifdef windows then
       test(_TestWindowsLoadRootCertificates)
     else
@@ -245,6 +246,85 @@ class \nodoc\ iso _TestTCPSSLUnmute is UnitTest
     _TestTCP(h)(
       SSLConnection(_TestTCPMuteSendNotify(h), consume ssl_client),
       SSLConnection(_TestTCPUnmuteReceiveNotify(h), consume ssl_server))
+
+class \nodoc\ iso _TestTCPSSLClientVerifyFalseWithHostname is UnitTest
+  """
+  Test that set_client_verify(false) disables hostname verification.
+  The test certificate has no SAN or CN matching "localhost", so with
+  verification enabled, a client created with hostname "localhost" would
+  fail hostname verification. With set_client_verify(false), the connection
+  should succeed.
+  """
+  fun name(): String => "net/TCPSSL.client_verify_false_with_hostname"
+  fun exclusion_group(): String => "network"
+
+  fun ref apply(h: TestHelper) =>
+    h.expect_action("client connected")
+
+    let auth = FileAuth(h.env.root)
+    let sslctx =
+      try
+        recover
+          SSLContext
+            .> set_authority(FilePath(auth, "assets/cert.pem"))?
+            .> set_cert(
+                FilePath(auth, "assets/cert.pem"),
+                FilePath(auth, "assets/key.pem"))?
+            .> set_client_verify(false)
+            .> set_server_verify(false)
+        end
+      else
+        h.fail("ssl context setup failed")
+        return
+      end
+
+    let ssl_client =
+      try
+        sslctx.client("localhost")?
+      else
+        h.fail("failed getting ssl client session")
+        return
+      end
+    let ssl_server =
+      try
+        sslctx.server()?
+      else
+        h.fail("failed getting ssl server session")
+        return
+      end
+
+    _TestTCP(h)(
+      SSLConnection(
+        _TestTCPSSLClientVerifyFalseNotify(h),
+        consume ssl_client),
+      SSLConnection(
+        _TestTCPSSLClientVerifyFalseServerNotify(h),
+        consume ssl_server))
+
+class \nodoc\ _TestTCPSSLClientVerifyFalseNotify is TCPConnectionNotify
+  let _h: TestHelper
+
+  new iso create(h: TestHelper) =>
+    _h = h
+
+  fun ref connected(conn: TCPConnection ref) =>
+    _h.complete_action("client connected")
+    _h.complete(true)
+
+  fun ref connect_failed(conn: TCPConnection ref) =>
+    _h.fail_action("client connect failed")
+
+  fun ref auth_failed(conn: TCPConnection ref) =>
+    _h.fail("hostname verification should have been skipped")
+
+class \nodoc\ _TestTCPSSLClientVerifyFalseServerNotify is TCPConnectionNotify
+  let _h: TestHelper
+
+  new iso create(h: TestHelper) =>
+    _h = h
+
+  fun ref connect_failed(conn: TCPConnection ref) =>
+    _h.fail_action("server connect failed")
 
 class \nodoc\ iso _TestTCPSSLThrottle is UnitTest
   """
