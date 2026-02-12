@@ -124,16 +124,22 @@ class Digest
     end
     @EVP_DigestInit_ex(_ctx, @EVP_sha512(), USize(0))
 
-  new shake128() =>
+  new shake128(size': USize = 16) =>
     """
-    Use the Shake128 algorithm to calculate the hash.
+    Use the SHAKE128 algorithm to calculate the hash.
+
+    SHAKE128 is an extendable output function (XOF) that can produce
+    variable-length output. The `size'` parameter controls the output length
+    in bytes (default: 16). Variable-length output requires OpenSSL 3.0.x;
+    on OpenSSL 1.1.x, the default size is always used.
     """
-    _digest_size = 16
     ifdef "openssl_1.1.x" or "openssl_3.0.x" then
-      ifdef not "openssl_3.0.x" then
-        _variable_length = false
-      else
+      ifdef "openssl_3.0.x" then
         _variable_length = true
+        _digest_size = size'
+      else
+        _variable_length = false
+        _digest_size = 16
       end
       _ctx = @EVP_MD_CTX_new()
       @EVP_DigestInit_ex(_ctx, @EVP_shake128(), USize(0))
@@ -141,16 +147,22 @@ class Digest
       compile_error "shake128 is only supported with OpenSSL 1.1.x or 3.0.x"
     end
 
-  new shake256() =>
+  new shake256(size': USize = 32) =>
     """
-    Use the Shake256 algorithm to calculate the hash.
+    Use the SHAKE256 algorithm to calculate the hash.
+
+    SHAKE256 is an extendable output function (XOF) that can produce
+    variable-length output. The `size'` parameter controls the output length
+    in bytes (default: 32). Variable-length output requires OpenSSL 3.0.x;
+    on OpenSSL 1.1.x, the default size is always used.
     """
-    _digest_size = 32
     ifdef "openssl_1.1.x" or "openssl_3.0.x" then
-      ifdef not "openssl_3.0.x" then
-        _variable_length = false
-      else
+      ifdef "openssl_3.0.x" then
         _variable_length = true
+        _digest_size = size'
+      else
+        _variable_length = false
+        _digest_size = 32
       end
       _ctx = @EVP_MD_CTX_new()
       @EVP_DigestInit_ex(_ctx, @EVP_shake256(), USize(0))
