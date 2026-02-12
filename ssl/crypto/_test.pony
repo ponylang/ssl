@@ -29,6 +29,12 @@ actor \nodoc\ Main is TestList
       test(Property1UnitTest[USize](_TestPbkdf2Sha256OutputLength))
       test(Property1UnitTest[USize](_TestPbkdf2Sha256Deterministic))
     end
+    ifdef "openssl_3.0.x" then
+      test(Property1UnitTest[USize](_TestShake128OutputLength))
+      test(Property1UnitTest[USize](_TestShake256OutputLength))
+      test(Property1UnitTest[USize](_TestShake128XofPrefix))
+      test(Property1UnitTest[USize](_TestShake256XofPrefix))
+    end
 
 class \nodoc\ iso _TestConstantTimeCompare is UnitTest
   fun name(): String => "crypto/ConstantTimeCompare"
@@ -430,3 +436,75 @@ class \nodoc\ iso _TestRandBytesNonConstant is Property1[USize]
     let a = RandBytes(sample)?
     let b = RandBytes(sample)?
     h.assert_false(ConstantTimeCompare(a, b))
+
+class \nodoc\ iso _TestShake128OutputLength is Property1[USize]
+  fun name(): String => "crypto/Shake128/property/output_length"
+
+  fun gen(): Generator[USize] =>
+    Generators.usize(1, 256)
+
+  fun ref property(sample: USize, h: PropertyHelper) ? =>
+    ifdef "openssl_3.0.x" then
+      let d = Digest.shake128(sample)
+      d.append("test")?
+      h.assert_eq[USize](sample, d.final().size())
+    end
+
+class \nodoc\ iso _TestShake256OutputLength is Property1[USize]
+  fun name(): String => "crypto/Shake256/property/output_length"
+
+  fun gen(): Generator[USize] =>
+    Generators.usize(1, 256)
+
+  fun ref property(sample: USize, h: PropertyHelper) ? =>
+    ifdef "openssl_3.0.x" then
+      let d = Digest.shake256(sample)
+      d.append("test")?
+      h.assert_eq[USize](sample, d.final().size())
+    end
+
+class \nodoc\ iso _TestShake128XofPrefix is Property1[USize]
+  fun name(): String => "crypto/Shake128/property/xof_prefix"
+
+  fun gen(): Generator[USize] =>
+    Generators.usize(2, 256)
+
+  fun ref property(sample: USize, h: PropertyHelper) ? =>
+    ifdef "openssl_3.0.x" then
+      let small_size = sample / 2
+      let large_size = sample
+
+      let small = Digest.shake128(small_size)
+      small.append("test input")?
+      let small_result = small.final()
+
+      let large = Digest.shake128(large_size)
+      large.append("test input")?
+      let large_result = large.final()
+
+      h.assert_array_eq[U8](small_result,
+        large_result.trim(0, small_size))
+    end
+
+class \nodoc\ iso _TestShake256XofPrefix is Property1[USize]
+  fun name(): String => "crypto/Shake256/property/xof_prefix"
+
+  fun gen(): Generator[USize] =>
+    Generators.usize(2, 256)
+
+  fun ref property(sample: USize, h: PropertyHelper) ? =>
+    ifdef "openssl_3.0.x" then
+      let small_size = sample / 2
+      let large_size = sample
+
+      let small = Digest.shake256(small_size)
+      small.append("test input")?
+      let small_result = small.final()
+
+      let large = Digest.shake256(large_size)
+      large.append("test input")?
+      let large_result = large.final()
+
+      h.assert_array_eq[U8](small_result,
+        large_result.trim(0, small_size))
+    end
