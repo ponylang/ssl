@@ -10,7 +10,6 @@ use @SSL_CTX_ctrl[ILong](
   op: I32,
   arg: ULong,
   parg: Pointer[None])
-use @SSLv23_method[Pointer[None]]() if "openssl_0.9.0"
 use @TLS_method[Pointer[None]]() if "openssl_1.1.x" or "openssl_3.0.x" or "libressl"
 use @SSL_CTX_new[Pointer[_SSLContext]](method: Pointer[None])
 use @SSL_CTX_free[None](ctx: Pointer[_SSLContext] tag)
@@ -51,8 +50,6 @@ primitive _SslCtrlClearOptions fun val apply(): I32 => 77
 // Also, in the version strings the "v" becomes "V" and
 // the underscore "_" becomes "u". So SSL_OP_NO_TLSv1_2
 // _SslOpNo_TlsV1u2.
-primitive _SslOpNoSslV2    fun val apply(): ULong => 0x01000000 // 0 in 1.1
-primitive _SslOpNoSslV3    fun val apply(): ULong => 0x02000000
 primitive _SslOpNoTlsV1    fun val apply(): ULong => 0x04000000
 primitive _SslOpNoTlsV1u2  fun val apply(): ULong => 0x08000000
 primitive _SslOpNoTlsV1u1  fun val apply(): ULong => 0x10000000
@@ -60,12 +57,6 @@ primitive _SslOpNoTlsV1u3  fun val apply(): ULong => 0x20000000
 
 primitive _SslOpNoDtlsV1   fun val apply(): ULong => 0x04000000
 primitive _SslOpNoDtlsV1u2 fun val apply(): ULong => 0x08000000
-
-// Defined as SSL_OP_NO_SSL_MASK in ssl.h
-primitive _SslOpNoSslMask
-  fun val apply(): ULong =>
-    _SslOpNoSslV3() + _SslOpNoTlsV1() + _SslOpNoTlsV1u1() + _SslOpNoTlsV1u2()
-      + _SslOpNoTlsV1u3()
 
 // Defined as SSL_OP_NO_DTLS_MASK in ssl.h
 primitive _SslOpNoDtlsMask
@@ -91,14 +82,6 @@ class val SSLContext
         set_min_proto_version(Tls1u2Version())?
         set_max_proto_version(SslAutoVersion())?
       end
-    elseif "openssl_0.9.0" then
-      _ctx = @SSL_CTX_new(@SSLv23_method())
-
-      // Disable "all" SSL/TSL options
-      _set_options(_SslOpNoSslMask() + _SslOpNoSslV2())
-
-      // Allow only newer ciphers
-      allow_tls_v1_2(true)
     else
       compile_error "You must select an SSL version to use."
     end
@@ -106,7 +89,7 @@ class val SSLContext
   fun _set_options(opts: ULong) =>
     ifdef "openssl_1.1.x" or "openssl_3.0.x" then
       @SSL_CTX_set_options(_ctx, opts)
-    elseif "openssl_0.9.0" or "libressl" then
+    elseif "libressl" then
       @SSL_CTX_ctrl(_ctx, _SslCtrlSetOptions(), opts, Pointer[None])
     else
       compile_error "You must select an SSL version to use."
@@ -115,7 +98,7 @@ class val SSLContext
   fun _clear_options(opts: ULong) =>
     ifdef "openssl_1.1.x" or "openssl_3.0.x" then
       @SSL_CTX_clear_options(_ctx, opts)
-    elseif "openssl_0.9.0" or "libressl" then
+    elseif "libressl" then
       @SSL_CTX_ctrl(_ctx, _SslCtrlClearOptions(), opts, Pointer[None])
     else
       compile_error "You must select an SSL version to use."
@@ -322,8 +305,6 @@ class val SSLContext
       @SSL_CTX_set_alpn_select_cb(
         _ctx, addressof SSLContext._alpn_select_cb, resolver)
       return true
-    elseif "openssl_0.9.0" then
-      return false
     else
       compile_error "You must select an SSL version to use."
     end
@@ -344,8 +325,6 @@ class val SSLContext
             _ctx, proto_list.cpointer(), proto_list.size())
         return result == 0
       end
-    elseif "openssl_0.9.0" then
-      return false
     else
       compile_error "You must select an SSL version to use."
     end

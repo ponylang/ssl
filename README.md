@@ -17,15 +17,7 @@ Production ready.
 
 ## Supported SSL versions
 
-The 0.9.0, 1.1.x, and 3.0.x OpenSSL versions and corresponding compatible LibreSSL library versions are supported.
-
-The default is to use the 0.9.x library APIs. You can change the selected supported library version at compile-time by using Pony's compile time definition functionality.
-
-### Using OpenSSL 0.9.0
-
-```bash
-corral run -- ponyc -Dopenssl_0.9.0
-```
+OpenSSL 1.1.x, OpenSSL 3.0.x, and LibreSSL are supported. Select the library version at compile-time using Pony's compile time definition functionality.
 
 ### Using OpenSSL 1.1.x
 
@@ -37,6 +29,12 @@ corral run -- ponyc -Dopenssl_1.1.x
 
 ```bash
 corral run -- ponyc -Dopenssl_3.0.x
+```
+
+### Using LibreSSL
+
+```bash
+corral run -- ponyc -Dlibressl
 ```
 
 ## Dependencies
@@ -97,7 +95,7 @@ sudo zypper install libopenssl-devel
 
 If you use [Corral](https://github.com/ponylang/corral) to include this package as dependency of a project, Corral will download and build LibreSSL for you the first time you run `corral fetch`.  Otherwise, before using this package, you must run `.\make.ps1 libs` in its base directory to download and build LibreSSL for Windows. In both cases, you will need CMake (3.15 or higher) and 7Zip (`7z.exe`) in your `PATH`; and Visual Studio 2017 or later (or the Visual C++ Build Tools 2017 or later) installed in your system.
 
-You should pass `--define openssl_0.9.0` to Ponyc when using this package on Windows.
+You should pass `--define libressl` to Ponyc when using this package on Windows.
 
 ## API Documentation
 

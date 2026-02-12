@@ -4,13 +4,11 @@ use "lib:crypto"
 use "lib:bcrypt" if windows
 
 use @EVP_MD_CTX_new[Pointer[_EVPCTX]]() if "openssl_1.1.x" or "openssl_3.0.x" or "libressl"
-use @EVP_MD_CTX_create[Pointer[_EVPCTX]]() if not "openssl_1.1.x" or "openssl_3.0.x"
 use @EVP_DigestInit_ex[I32](ctx: Pointer[_EVPCTX] tag, t: Pointer[_EVPMD], impl: USize)
 use @EVP_DigestUpdate[I32](ctx: Pointer[_EVPCTX] tag, d: Pointer[U8] tag, cnt: USize)
 use @EVP_DigestFinal_ex[I32](ctx: Pointer[_EVPCTX] tag, md: Pointer[U8] tag, s: Pointer[USize])
 use @EVP_DigestFinalXOF[I32](ctx: Pointer[_EVPCTX] tag, md: Pointer[U8] tag, len: USize) if "openssl_3.0.x"
 use @EVP_MD_CTX_free[None](ctx: Pointer[_EVPCTX]) if "openssl_1.1.x" or "openssl_3.0.x" or "libressl"
-use @EVP_MD_CTX_destroy[None](ctx: Pointer[_EVPCTX]) if not "openssl_1.1.x" or "openssl_3.0.x"
 
 use @EVP_md5[Pointer[_EVPMD]]()
 use @EVP_ripemd160[Pointer[_EVPMD]]()
@@ -44,7 +42,7 @@ class Digest
     ifdef "openssl_1.1.x" or "openssl_3.0.x" or "libressl" then
       _ctx = @EVP_MD_CTX_new()
     else
-      _ctx = @EVP_MD_CTX_create()
+      compile_error "You must select an SSL version to use."
     end
     @EVP_DigestInit_ex(_ctx, @EVP_md5(), USize(0))
 
@@ -57,7 +55,7 @@ class Digest
     ifdef "openssl_1.1.x" or "openssl_3.0.x" or "libressl" then
       _ctx = @EVP_MD_CTX_new()
     else
-      _ctx = @EVP_MD_CTX_create()
+      compile_error "You must select an SSL version to use."
     end
     @EVP_DigestInit_ex(_ctx, @EVP_ripemd160(), USize(0))
 
@@ -70,7 +68,7 @@ class Digest
     ifdef "openssl_1.1.x" or "openssl_3.0.x" or "libressl" then
       _ctx = @EVP_MD_CTX_new()
     else
-      _ctx = @EVP_MD_CTX_create()
+      compile_error "You must select an SSL version to use."
     end
     @EVP_DigestInit_ex(_ctx, @EVP_sha1(), USize(0))
 
@@ -83,7 +81,7 @@ class Digest
     ifdef "openssl_1.1.x" or "openssl_3.0.x" or "libressl" then
       _ctx = @EVP_MD_CTX_new()
     else
-      _ctx = @EVP_MD_CTX_create()
+      compile_error "You must select an SSL version to use."
     end
     @EVP_DigestInit_ex(_ctx, @EVP_sha224(), USize(0))
 
@@ -96,7 +94,7 @@ class Digest
     ifdef "openssl_1.1.x" or "openssl_3.0.x" or "libressl" then
       _ctx = @EVP_MD_CTX_new()
     else
-      _ctx = @EVP_MD_CTX_create()
+      compile_error "You must select an SSL version to use."
     end
     @EVP_DigestInit_ex(_ctx, @EVP_sha256(), USize(0))
 
@@ -109,7 +107,7 @@ class Digest
     ifdef "openssl_1.1.x" or "openssl_3.0.x" or "libressl" then
       _ctx = @EVP_MD_CTX_new()
     else
-      _ctx = @EVP_MD_CTX_create()
+      compile_error "You must select an SSL version to use."
     end
     @EVP_DigestInit_ex(_ctx, @EVP_sha384(), USize(0))
 
@@ -122,7 +120,7 @@ class Digest
     ifdef "openssl_1.1.x" or "openssl_3.0.x" or "libressl" then
       _ctx = @EVP_MD_CTX_new()
     else
-      _ctx = @EVP_MD_CTX_create()
+      compile_error "You must select an SSL version to use."
     end
     @EVP_DigestInit_ex(_ctx, @EVP_sha512(), USize(0))
 
@@ -192,7 +190,7 @@ class Digest
       ifdef "openssl_1.1.x" or "openssl_3.0.x" or "libressl" then
         @EVP_MD_CTX_free(_ctx)
       else
-        @EVP_MD_CTX_destroy(_ctx)
+        compile_error "You must select an SSL version to use."
       end
       let h = (consume digest).array()
       _hash = h
