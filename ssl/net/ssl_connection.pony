@@ -94,7 +94,6 @@ class SSLConnection is TCPConnectionNotify
     """
     _ssl.receive(consume data)
     _poll(conn)
-    true
 
   fun ref expect(conn: TCPConnection ref, qty: USize): USize =>
     """
@@ -129,7 +128,7 @@ class SSLConnection is TCPConnectionNotify
     """
     _notify.unthrottled(conn)
 
-  fun ref _poll(conn: TCPConnection ref) =>
+  fun ref _poll(conn: TCPConnection ref): Bool =>
     """
     Checks for both new application data and new destination data. Informs the
     wrapped protocol that is has connected when the handshake is complete.
@@ -162,14 +161,16 @@ class SSLConnection is TCPConnectionNotify
         conn.close()
       end
 
-      return
+      return true
     | SSLError =>
       if not _closed then
         conn.close()
       end
 
-      return
+      return true
     end
+
+    var continue_reading: Bool = true
 
     try
       var received_called: USize = 0
@@ -179,10 +180,14 @@ class SSLConnection is TCPConnectionNotify
 
         if r isnt None then
           received_called = received_called + 1
-          _notify.received(
+          if not _notify.received(
             conn,
             (consume r) as Array[U8] iso^,
             received_called)
+          then
+            continue_reading = false
+            break
+          end
         else
           break
         end
@@ -194,3 +199,5 @@ class SSLConnection is TCPConnectionNotify
         conn.write_final(_ssl.send()?)
       end
     end
+
+    continue_reading
