@@ -9,7 +9,7 @@ Production ready.
 ## Installation
 
 * Install [corral](https://github.com/ponylang/corral)
-* `corral add github.com/ponylang/ssl.git --version 1.0.3`
+* `corral add github.com/ponylang/ssl.git --version 2.0.0`
 * `corral fetch` to fetch your dependencies
 * `use "ssl/crypto"` to include the `crypto` sub-package
 * `use "ssl/net"` to include the `net` sub-package
