@@ -1,6 +1,6 @@
 # SSL Package
 
-Pony bindings for OpenSSL and LibreSSL, providing SSL networking (`ssl/net`) and cryptographic hashing (`ssl/crypto`).
+Pony bindings for OpenSSL and LibreSSL, providing SSL networking (`ssl/net`) and cryptographic primitives (`ssl/crypto`).
 
 ## Building and Testing
 
@@ -53,6 +53,9 @@ Every ifdef chain must end with `compile_error` to catch missing defines at comp
 | `ssl/net/ssl.pony` | SSL session — handshake, read/write, certificate verification |
 | `ssl/net/x509.pony` | Certificate name extraction and hostname matching |
 | `ssl/crypto/digest.pony` | Hash digests (MD5, SHA family, SHAKE) via EVP API |
+| `ssl/crypto/hmac_sha256.pony` | HMAC-SHA-256 message authentication (RFC 2104) |
+| `ssl/crypto/pbkdf2_sha256.pony` | PBKDF2 key derivation with HMAC-SHA-256 (RFC 2898, OpenSSL 1.1.x+ only) |
+| `ssl/crypto/rand_bytes.pony` | Cryptographically secure random byte generation |
 
 ## Known Issues
 
