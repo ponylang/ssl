@@ -13,6 +13,7 @@ All notable changes to this project will be documented in this file. This projec
 
 ### Changed
 
+- Remove OpenSSL 0.9.0 support ([PR #19](https://github.com/ponylang/ssl/pull/19))
 
 ## [1.0.3] - 2026-02-12
 
