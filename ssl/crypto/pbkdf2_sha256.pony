@@ -38,8 +38,6 @@ primitive Pbkdf2Sha256
         if rc != 1 then error end
         arr
       end
-    elseif "openssl_0.9.0" then
-      compile_error "Pbkdf2Sha256 requires OpenSSL 1.1.x or 3.0.x"
     else
       compile_error "You must select an SSL version to use."
     end

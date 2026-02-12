@@ -24,7 +24,7 @@ use @BIO_write[I32](bio: Pointer[_BIO] tag, buf: Pointer[U8] tag, len: U32)
 use @SSL_get_error[I32](ssl: Pointer[_SSL], ret: I32)
 use @BIO_ctrl_pending[USize](bio: Pointer[_BIO] tag)
 use @SSL_has_pending[I32](ssl: Pointer[_SSL]) if "openssl_1.1.x" or "openssl_3.0.x"
-use @SSL_get_peer_certificate[Pointer[X509]](ssl: Pointer[_SSL]) if "openssl_1.1.x" or "openssl_0.9.0" or "libressl"
+use @SSL_get_peer_certificate[Pointer[X509]](ssl: Pointer[_SSL]) if "openssl_1.1.x" or "libressl"
 use @SSL_get1_peer_certificate[Pointer[X509]](ssl: Pointer[_SSL]) if "openssl_3.0.x"
 
 primitive _SSL
@@ -264,7 +264,7 @@ class SSL
     if _verify and (_hostname.size() > 0) then
       let cert = ifdef "openssl_3.0.x" then
         @SSL_get1_peer_certificate(_ssl)
-      elseif "openssl_1.1.x" or "openssl_0.9.0" or "libressl" then
+      elseif "openssl_1.1.x" or "libressl" then
         @SSL_get_peer_certificate(_ssl)
       else
         compile_error "You must select an SSL version to use."

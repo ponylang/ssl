@@ -10,7 +10,7 @@ use @X509_get_ext_d2i[Pointer[_GeneralNameStack]](cert: Pointer[X509],
 use @OPENSSL_sk_pop[Pointer[_GeneralName]](stack: Pointer[_GeneralNameStack])
   if "openssl_1.1.x" or "openssl_3.0.x"
 use @sk_pop[Pointer[_GeneralName]](stack: Pointer[_GeneralNameStack])
-  if "openssl_0.9.0" or "libressl"
+  if "libressl"
 use @GENERAL_NAME_get0_value[Pointer[U8] tag](name: Pointer[_GeneralName],
   ptype: Pointer[I32])
 use @ASN1_STRING_type[I32](value: Pointer[U8] tag)
@@ -20,7 +20,7 @@ use @GENERAL_NAME_free[None](name: Pointer[_GeneralName])
 use @OPENSSL_sk_free[None](stack: Pointer[_GeneralNameStack])
   if "openssl_1.1.x" or "openssl_3.0.x"
 use @sk_free[None](stack: Pointer[_GeneralNameStack])
-  if "openssl_0.9.0" or "libressl"
+  if "libressl"
 
 primitive _X509Name
 primitive _GeneralName
@@ -86,7 +86,7 @@ primitive X509
     var name =
       ifdef "openssl_1.1.x" or "openssl_3.0.x" then
         @OPENSSL_sk_pop(stack)
-      elseif "openssl_0.9.0" or "libressl" then
+      elseif "libressl" then
         @sk_pop(stack)
       else
         compile_error "You must select an SSL version to use."
@@ -132,7 +132,7 @@ primitive X509
       @GENERAL_NAME_free(name)
       ifdef "openssl_1.1.x" or "openssl_3.0.x" then
         name = @OPENSSL_sk_pop(stack)
-      elseif "openssl_0.9.0" or "libressl" then
+      elseif "libressl" then
         name = @sk_pop(stack)
       else
         compile_error "You must select an SSL version to use."
@@ -141,7 +141,7 @@ primitive X509
 
     ifdef "openssl_1.1.x" or "openssl_3.0.x" then
       @OPENSSL_sk_free(stack)
-    elseif "openssl_0.9.0" or "libressl" then
+    elseif "libressl" then
       @sk_free(stack)
     else
       compile_error "You must select an SSL version to use."

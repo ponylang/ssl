@@ -3,14 +3,9 @@ use "path:/opt/homebrew/opt/libressl/lib" if osx and arm
 use "lib:ssl"
 use "lib:crypto"
 
-use @ponyint_ssl_multithreading[Pointer[U8]](count: U32)
 use @OPENSSL_init_ssl[I32](opts: U64, settings: Pointer[_OpenSslInitSettings])
 use @OPENSSL_INIT_new[Pointer[_OpenSslInitSettings]]()
 use @OPENSSL_INIT_free[None](settings: Pointer[_OpenSslInitSettings])
-use @SSL_library_init[I32]() if "openssl_0.9.0"
-use @SSL_load_error_strings[None]() if "openssl_0.9.0"
-use @CRYPTO_num_locks[I32]() if "openssl_0.9.0"
-use @CRYPTO_set_locking_callback[None](cb: Pointer[U8]) if "openssl_0.9.0"
 
 primitive _OpenSslInitSettings
 
@@ -33,12 +28,6 @@ primitive _SSLInit
       @OPENSSL_INIT_free(settings)
     elseif "libressl" then
       @OPENSSL_init_ssl(0, Pointer[_OpenSslInitSettings])
-    elseif "openssl_0.9.0" then
-      @SSL_load_error_strings()
-      @SSL_library_init()
-      let cb =
-        @ponyint_ssl_multithreading(@CRYPTO_num_locks().u32())
-      @CRYPTO_set_locking_callback(cb)
     else
       compile_error "You must select an SSL version to use."
     end
