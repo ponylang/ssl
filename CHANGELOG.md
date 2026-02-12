@@ -6,6 +6,7 @@ All notable changes to this project will be documented in this file. This projec
 
 ### Fixed
 
+- SSLConnection ignores _notify.received value ([PR #21](https://github.com/ponylang/ssl/pull/21))
 
 ### Added
 
