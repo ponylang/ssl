@@ -23,7 +23,7 @@ actor \nodoc\ Main is TestList
     test(Property1UnitTest[USize](_TestHmacSha256Deterministic))
     test(Property1UnitTest[USize](_TestRandBytesOutputLength))
     test(Property1UnitTest[USize](_TestRandBytesNonConstant))
-    ifdef "openssl_1.1.x" or "openssl_3.0.x" then
+    ifdef "openssl_1.1.x" or "openssl_3.0.x" or "libressl" then
       test(_TestPbkdf2Sha256Rfc7914)
       test(_TestPbkdf2Sha256Scram)
       test(Property1UnitTest[USize](_TestPbkdf2Sha256OutputLength))
@@ -311,7 +311,7 @@ class \nodoc\ iso _TestPbkdf2Sha256Rfc7914 is UnitTest
   fun name(): String => "crypto/Pbkdf2Sha256/RFC7914"
 
   fun apply(h: TestHelper) ? =>
-    ifdef "openssl_1.1.x" or "openssl_3.0.x" then
+    ifdef "openssl_1.1.x" or "openssl_3.0.x" or "libressl" then
       // Test Vector 1: Password "passwd", Salt "salt", c=1, dkLen=64
       h.assert_eq[String](
         "55ac046e56e3089fec1691c22544b605f94185216dde0465e68b9d57c20dacbc" +
@@ -334,7 +334,7 @@ class \nodoc\ iso _TestPbkdf2Sha256Scram is UnitTest
   fun name(): String => "crypto/Pbkdf2Sha256/SCRAM"
 
   fun apply(h: TestHelper) ? =>
-    ifdef "openssl_1.1.x" or "openssl_3.0.x" then
+    ifdef "openssl_1.1.x" or "openssl_3.0.x" or "libressl" then
       // Salt: decoded bytes of base64 "W22ZaJ0SNY7soEsUEjb6gQ=="
       let salt = recover val [as U8:
         0x5b; 0x6d; 0x99; 0x68; 0x9d; 0x12; 0x35; 0x8e
@@ -393,7 +393,7 @@ class \nodoc\ iso _TestPbkdf2Sha256OutputLength is Property1[USize]
     Generators.usize(1, 128)
 
   fun ref property(sample: USize, h: PropertyHelper) ? =>
-    ifdef "openssl_1.1.x" or "openssl_3.0.x" then
+    ifdef "openssl_1.1.x" or "openssl_3.0.x" or "libressl" then
       h.assert_eq[USize](sample,
         Pbkdf2Sha256("p", "s", 1, sample)?.size())
     end
@@ -405,7 +405,7 @@ class \nodoc\ iso _TestPbkdf2Sha256Deterministic is Property1[USize]
     Generators.usize(1, 64)
 
   fun ref property(sample: USize, h: PropertyHelper) ? =>
-    ifdef "openssl_1.1.x" or "openssl_3.0.x" then
+    ifdef "openssl_1.1.x" or "openssl_3.0.x" or "libressl" then
       h.assert_array_eq[U8](
         Pbkdf2Sha256("p", "s", 1, sample)?,
         Pbkdf2Sha256("p", "s", 1, sample)?)
