@@ -9,6 +9,9 @@ All notable changes to this project will be documented in this file. This projec
 
 ### Added
 
+- Add HMAC-SHA-256 primitive ([PR #16](https://github.com/ponylang/ssl/pull/16))
+- Add PBKDF2-SHA-256 primitive ([PR #16](https://github.com/ponylang/ssl/pull/16))
+- Add RandBytes primitive ([PR #16](https://github.com/ponylang/ssl/pull/16))
 
 ### Changed
 
