@@ -9,6 +9,7 @@ All notable changes to this project will be documented in this file. This projec
 
 ### Added
 
+- Add first-class LibreSSL support ([PR #18](https://github.com/ponylang/ssl/pull/18))
 
 ### Changed
 
