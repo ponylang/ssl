@@ -55,12 +55,6 @@ primitive _SslOpNoTlsV1u2  fun val apply(): ULong => 0x08000000
 primitive _SslOpNoTlsV1u1  fun val apply(): ULong => 0x10000000
 primitive _SslOpNoTlsV1u3  fun val apply(): ULong => 0x20000000
 
-primitive _SslOpNoDtlsV1   fun val apply(): ULong => 0x04000000
-primitive _SslOpNoDtlsV1u2 fun val apply(): ULong => 0x08000000
-
-// Defined as SSL_OP_NO_DTLS_MASK in ssl.h
-primitive _SslOpNoDtlsMask
-  fun val apply(): ULong => _SslOpNoDtlsV1() + _SslOpNoDtlsV1u2()
 
 class val SSLContext
   """
