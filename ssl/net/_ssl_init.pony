@@ -31,6 +31,8 @@ primitive _SSLInit
         _OpenSslInitLoadSslStrings() + _OpenSslInitLoadCryptoStrings(),
         settings)
       @OPENSSL_INIT_free(settings)
+    elseif "libressl" then
+      @OPENSSL_init_ssl(0, Pointer[_OpenSslInitSettings])
     elseif "openssl_0.9.0" then
       @SSL_load_error_strings()
       @SSL_library_init()

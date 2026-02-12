@@ -67,7 +67,7 @@ if (($Version -eq "") -and (Test-Path -Path "$rootDir\VERSION"))
   $Version = (Get-Content "$rootDir\VERSION") + "-" + (& git 'rev-parse' '--short' '--verify' 'HEAD^')
 }
 
-$ponyArgs = "--define openssl_0.9.0 --path $rootDir"
+$ponyArgs = "--define libressl --path $rootDir"
 
 Write-Host "Configuration:    $Config"
 Write-Host "Version:          $Version"
