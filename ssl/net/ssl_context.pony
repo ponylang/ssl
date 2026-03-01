@@ -338,7 +338,7 @@ class val SSLContext
     try
       let proto_arr = _ALPNProtocolList.to_array(proto_arr_str)?
 
-      match resolver.resolve(proto_arr)
+      match \exhaustive\ resolver.resolve(proto_arr)
       | let matched: String =>
       var size = matched.size()
       if (size > 0) and (size <= 255) then
