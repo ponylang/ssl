@@ -1,4 +1,5 @@
 use "pony_test"
+use "pony_check"
 use "itertools"
 use "files"
 use "net"
@@ -21,6 +22,7 @@ actor \nodoc\ Main is TestList
     else
       test(_TestTCPSSLThrottle)
     end
+    test(Property1UnitTest[Array[String]](_TestALPNProtocolListRoundTrip))
 
 class \nodoc\ iso _TestALPNProtocolListEncoding is UnitTest
   """
@@ -764,3 +766,21 @@ primitive \nodoc\ _TestSSLContext
       end
 
     (consume ssl_client, consume ssl_server)
+
+class \nodoc\ iso _TestALPNProtocolListRoundTrip is Property1[Array[String]]
+  fun name(): String =>
+    "net/ssl/_ALPNProtocolList/property/roundtrip"
+
+  fun gen(): Generator[Array[String]] =>
+    Generators.array_of[String](
+      Generators.ascii_printable(1, 20) where min = 1, max = 5)
+
+  fun ref property(sample: Array[String], h: PropertyHelper) ? =>
+    let encoded = _ALPNProtocolList.from_array(sample)?
+    let decoded = _ALPNProtocolList.to_array(encoded)?
+    h.assert_eq[USize](sample.size(), decoded.size())
+    var i: USize = 0
+    while i < sample.size() do
+      h.assert_true(sample(i)? == decoded(i)?)
+      i = i + 1
+    end
