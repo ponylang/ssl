@@ -35,6 +35,15 @@ actor \nodoc\ Main is TestList
       test(Property1UnitTest[USize](_TestShake128XofPrefix))
       test(Property1UnitTest[USize](_TestShake256XofPrefix))
     end
+    test(Property1UnitTest[USize](_TestHashFnOutputLength))
+    test(Property1UnitTest[USize](_TestHashFnDeterministic))
+    test(Property1UnitTest[USize](_TestHashFnDigestEquivalence))
+    test(Property2UnitTest[USize, USize](_TestDigestConcatenation))
+    test(Property1UnitTest[USize](_TestDigestOutputLength))
+    test(Property1UnitTest[USize](_TestConstantTimeCompareReflexive))
+    test(Property2UnitTest[USize, USize](_TestConstantTimeCompareSensitive))
+    test(Property1UnitTest[USize](_TestToHexStringLength))
+    test(Property1UnitTest[U8](_TestToHexStringValidHex))
 
 class \nodoc\ iso _TestConstantTimeCompare is UnitTest
   fun name(): String => "crypto/ConstantTimeCompare"
@@ -507,4 +516,193 @@ class \nodoc\ iso _TestShake256XofPrefix is Property1[USize]
 
       h.assert_array_eq[U8](small_result,
         large_result.trim(0, small_size))
+    end
+
+class \nodoc\ iso _TestHashFnOutputLength is Property1[USize]
+  fun name(): String => "crypto/HashFn/property/output_length"
+
+  fun gen(): Generator[USize] =>
+    Generators.usize(0, 256)
+
+  fun ref property(sample: USize, h: PropertyHelper) =>
+    let input = recover val Array[U8].init(0x42, sample) end
+    h.assert_eq[USize](16, MD4(input).size())
+    h.assert_eq[USize](16, MD5(input).size())
+    h.assert_eq[USize](20, RIPEMD160(input).size())
+    h.assert_eq[USize](20, SHA1(input).size())
+    h.assert_eq[USize](28, SHA224(input).size())
+    h.assert_eq[USize](32, SHA256(input).size())
+    h.assert_eq[USize](48, SHA384(input).size())
+    h.assert_eq[USize](64, SHA512(input).size())
+
+class \nodoc\ iso _TestHashFnDeterministic is Property1[USize]
+  fun name(): String => "crypto/HashFn/property/deterministic"
+
+  fun gen(): Generator[USize] =>
+    Generators.usize(0, 256)
+
+  fun ref property(sample: USize, h: PropertyHelper) =>
+    let input = recover val Array[U8].init(0x42, sample) end
+    h.assert_array_eq[U8](MD4(input), MD4(input))
+    h.assert_array_eq[U8](MD5(input), MD5(input))
+    h.assert_array_eq[U8](RIPEMD160(input), RIPEMD160(input))
+    h.assert_array_eq[U8](SHA1(input), SHA1(input))
+    h.assert_array_eq[U8](SHA224(input), SHA224(input))
+    h.assert_array_eq[U8](SHA256(input), SHA256(input))
+    h.assert_array_eq[U8](SHA384(input), SHA384(input))
+    h.assert_array_eq[U8](SHA512(input), SHA512(input))
+
+class \nodoc\ iso _TestHashFnDigestEquivalence is Property1[USize]
+  fun name(): String => "crypto/HashFn/property/digest_equivalence"
+
+  fun gen(): Generator[USize] =>
+    Generators.usize(0, 256)
+
+  fun ref property(sample: USize, h: PropertyHelper) ? =>
+    let input = recover val Array[U8].init(0x42, sample) end
+
+    let md5 = Digest.md5()
+    md5.append(input)?
+    h.assert_array_eq[U8](MD5(input), md5.final())
+
+    let ripemd160 = Digest.ripemd160()
+    ripemd160.append(input)?
+    h.assert_array_eq[U8](RIPEMD160(input), ripemd160.final())
+
+    let sha1 = Digest.sha1()
+    sha1.append(input)?
+    h.assert_array_eq[U8](SHA1(input), sha1.final())
+
+    let sha224 = Digest.sha224()
+    sha224.append(input)?
+    h.assert_array_eq[U8](SHA224(input), sha224.final())
+
+    let sha256 = Digest.sha256()
+    sha256.append(input)?
+    h.assert_array_eq[U8](SHA256(input), sha256.final())
+
+    let sha384 = Digest.sha384()
+    sha384.append(input)?
+    h.assert_array_eq[U8](SHA384(input), sha384.final())
+
+    let sha512 = Digest.sha512()
+    sha512.append(input)?
+    h.assert_array_eq[U8](SHA512(input), sha512.final())
+
+class \nodoc\ iso _TestDigestConcatenation is Property2[USize, USize]
+  fun name(): String => "crypto/Digest/property/concatenation"
+
+  fun gen1(): Generator[USize] =>
+    Generators.usize(0, 128)
+
+  fun gen2(): Generator[USize] =>
+    Generators.usize(0, 128)
+
+  fun ref property2(size1: USize, size2: USize, h: PropertyHelper) ? =>
+    let part1 = recover val Array[U8].init(0xAA, size1) end
+    let part2 = recover val Array[U8].init(0xBB, size2) end
+    let combined = recover val
+      let a = Array[U8](size1 + size2)
+      a.concat(part1.values())
+      a.concat(part2.values())
+      a
+    end
+
+    let d = Digest.sha256()
+    d.append(part1)?
+    d.append(part2)?
+    h.assert_array_eq[U8](SHA256(combined), d.final())
+
+class \nodoc\ iso _TestDigestOutputLength is Property1[USize]
+  fun name(): String => "crypto/Digest/property/output_length"
+
+  fun gen(): Generator[USize] =>
+    Generators.usize(0, 256)
+
+  fun ref property(sample: USize, h: PropertyHelper) ? =>
+    let input = recover val Array[U8].init(0x42, sample) end
+
+    let md5 = Digest.md5()
+    md5.append(input)?
+    h.assert_eq[USize](md5.digest_size(), md5.final().size())
+
+    let ripemd160 = Digest.ripemd160()
+    ripemd160.append(input)?
+    h.assert_eq[USize](ripemd160.digest_size(), ripemd160.final().size())
+
+    let sha1 = Digest.sha1()
+    sha1.append(input)?
+    h.assert_eq[USize](sha1.digest_size(), sha1.final().size())
+
+    let sha224 = Digest.sha224()
+    sha224.append(input)?
+    h.assert_eq[USize](sha224.digest_size(), sha224.final().size())
+
+    let sha256 = Digest.sha256()
+    sha256.append(input)?
+    h.assert_eq[USize](sha256.digest_size(), sha256.final().size())
+
+    let sha384 = Digest.sha384()
+    sha384.append(input)?
+    h.assert_eq[USize](sha384.digest_size(), sha384.final().size())
+
+    let sha512 = Digest.sha512()
+    sha512.append(input)?
+    h.assert_eq[USize](sha512.digest_size(), sha512.final().size())
+
+class \nodoc\ iso _TestConstantTimeCompareReflexive is Property1[USize]
+  fun name(): String =>
+    "crypto/ConstantTimeCompare/property/reflexive"
+
+  fun gen(): Generator[USize] =>
+    Generators.usize(0, 256)
+
+  fun ref property(sample: USize, h: PropertyHelper) =>
+    let input = recover val Array[U8].init(0x42, sample) end
+    h.assert_true(ConstantTimeCompare(input, input))
+
+class \nodoc\ iso _TestConstantTimeCompareSensitive
+  is Property2[USize, USize]
+  fun name(): String =>
+    "crypto/ConstantTimeCompare/property/sensitive"
+
+  fun gen1(): Generator[USize] =>
+    Generators.usize(1, 256)
+
+  fun gen2(): Generator[USize] =>
+    Generators.usize(0, 255)
+
+  fun ref property2(size: USize, hint: USize, h: PropertyHelper) ? =>
+    let pos = hint % size
+    let original = recover val Array[U8].init(0x42, size) end
+    let modified = recover val
+      let a = original.clone()
+      a(pos)? = a(pos)? xor 0xFF
+      a
+    end
+    h.assert_false(ConstantTimeCompare(original, modified))
+
+class \nodoc\ iso _TestToHexStringLength is Property1[USize]
+  fun name(): String => "crypto/ToHexString/property/length"
+
+  fun gen(): Generator[USize] =>
+    Generators.usize(0, 256)
+
+  fun ref property(sample: USize, h: PropertyHelper) =>
+    let input = recover val Array[U8].init(0x42, sample) end
+    h.assert_eq[USize](input.size() * 2, ToHexString(input).size())
+
+class \nodoc\ iso _TestToHexStringValidHex is Property1[U8]
+  fun name(): String => "crypto/ToHexString/property/valid_hex"
+
+  fun gen(): Generator[U8] =>
+    Generators.u8()
+
+  fun ref property(sample: U8, h: PropertyHelper) =>
+    let input = recover val [sample] end
+    let hex = ToHexString(input)
+    for c in hex.values() do
+      h.assert_true(
+        ((c >= '0') and (c <= '9')) or
+        ((c >= 'a') and (c <= 'f')))
     end
