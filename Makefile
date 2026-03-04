@@ -36,7 +36,7 @@ endif
 
 SOURCE_FILES := $(shell find $(SRC_DIR) -name \*.pony)
 
-test: unit-tests build-examples
+test: unit-tests examples
 
 unit-tests: $(tests_binary)
 	$^ --exclude=integration --sequential
@@ -45,7 +45,7 @@ $(tests_binary): $(GEN_FILES) $(SOURCE_FILES) | $(BUILD_DIR)
 	${GET_DEPENDENCIES_WITH}
 	${PONYC} ${SSL} -o ${BUILD_DIR} $(SRC_DIR)
 
-build-examples:
+examples:
 	${GET_DEPENDENCIES_WITH}
 	find examples/*/* -name '*.pony' -print | xargs -n 1 dirname  | sort -u | grep -v ffi- | xargs -n 1 -I {} ${PONYC} ${SSL} -s --checktree -o ${BUILD_DIR} {}
 
