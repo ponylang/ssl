@@ -8,6 +8,7 @@ Always use `make` rather than running `ponyc` directly. The Makefile uses `corra
 
 ```
 make test config=debug ssl=<version>
+make test-one t=TestName ssl=3.0.x  # run a single test by name
 ```
 
 SSL version is **required**. Valid values:
