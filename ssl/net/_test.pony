@@ -23,6 +23,12 @@ actor \nodoc\ Main is TestList
       test(_TestTCPSSLThrottle)
     end
     test(Property1UnitTest[Array[String]](_TestALPNProtocolListRoundTrip))
+    test(_TestMatchNameEmptyName)
+    test(_TestMatchNameExactCaseInsensitive)
+    test(_TestMatchNameNoMatch)
+    test(_TestMatchNameIPLiteral)
+    test(_TestMatchNameWildcard)
+    test(_TestMatchNameWildcardInsufficientLevels)
 
 class \nodoc\ iso _TestALPNProtocolListEncoding is UnitTest
   """
@@ -784,3 +790,54 @@ class \nodoc\ iso _TestALPNProtocolListRoundTrip is Property1[Array[String]]
       h.assert_true(sample(i)? == decoded(i)?)
       i = i + 1
     end
+
+class \nodoc\ iso _TestMatchNameEmptyName is UnitTest
+  fun name(): String => "net/ssl/X509._match_name/empty_name"
+
+  fun apply(h: TestHelper) =>
+    h.assert_false(X509._match_name("example.com", ""))
+    h.assert_false(X509._match_name("localhost", ""))
+    h.assert_false(X509._match_name("192.168.1.1", ""))
+
+class \nodoc\ iso _TestMatchNameExactCaseInsensitive is UnitTest
+  fun name(): String => "net/ssl/X509._match_name/exact_case_insensitive"
+
+  fun apply(h: TestHelper) =>
+    h.assert_true(X509._match_name("example.com", "example.com"))
+    h.assert_true(X509._match_name("Example.COM", "example.com"))
+    h.assert_true(X509._match_name("example.com", "EXAMPLE.COM"))
+
+class \nodoc\ iso _TestMatchNameNoMatch is UnitTest
+  fun name(): String => "net/ssl/X509._match_name/no_match"
+
+  fun apply(h: TestHelper) =>
+    h.assert_false(X509._match_name("example.com", "other.com"))
+    h.assert_false(X509._match_name("example.com", "example.org"))
+
+class \nodoc\ iso _TestMatchNameIPLiteral is UnitTest
+  fun name(): String => "net/ssl/X509._match_name/ip_literal"
+
+  fun apply(h: TestHelper) =>
+    h.assert_true(X509._match_name("192.168.1.1", "192.168.1.1"))
+    h.assert_false(X509._match_name("192.168.1.1", "192.168.1.2"))
+    // IP literals require exact match, not case-insensitive domain match
+    h.assert_false(X509._match_name("192.168.1.1", "*.168.1.1"))
+
+class \nodoc\ iso _TestMatchNameWildcard is UnitTest
+  fun name(): String => "net/ssl/X509._match_name/wildcard"
+
+  fun apply(h: TestHelper) =>
+    h.assert_true(X509._match_name("foo.example.com", "*.example.com"))
+    h.assert_true(X509._match_name("FOO.Example.COM", "*.example.com"))
+
+class \nodoc\ iso _TestMatchNameWildcardInsufficientLevels is UnitTest
+  fun name(): String =>
+    "net/ssl/X509._match_name/wildcard_insufficient_levels"
+
+  fun apply(h: TestHelper) =>
+    // Wildcard alone is not valid
+    h.assert_false(X509._match_name("example.com", "*"))
+    // Wildcard with only one domain level is not valid
+    h.assert_false(X509._match_name("example.com", "*."))
+    // Wildcard followed by dot-dot is not valid
+    h.assert_false(X509._match_name("foo.example.com", "*..com"))

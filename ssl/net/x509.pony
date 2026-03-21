@@ -158,7 +158,9 @@ primitive X509
       return host == name
     end
 
-    if host.compare_sub(name, name.size(), 0, 0, true) is Equal then
+    if (name.size() > 0) and
+      (host.compare_sub(name, name.size(), 0, 0, true) is Equal)
+    then
       // If the names are the same ignoring case, they match.
       return true
     end
