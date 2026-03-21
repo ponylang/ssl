@@ -2,17 +2,11 @@
 
 All notable changes to this project will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org/) and [Keep a CHANGELOG](http://keepachangelog.com/).
 
-## [unreleased] - unreleased
+## [2.0.1] - 2026-03-21
 
 ### Fixed
 
 - Fix X509 hostname verification accepting empty certificate names ([PR #35](https://github.com/ponylang/ssl/pull/35))
-
-### Added
-
-
-### Changed
-
 
 ## [2.0.0] - 2026-02-12
 
