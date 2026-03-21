@@ -6,6 +6,7 @@ All notable changes to this project will be documented in this file. This projec
 
 ### Fixed
 
+- Fix X509 hostname verification accepting empty certificate names ([PR #35](https://github.com/ponylang/ssl/pull/35))
 
 ### Added
 
