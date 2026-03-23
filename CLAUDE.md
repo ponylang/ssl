@@ -19,7 +19,7 @@ SSL version is **required**. Valid values:
 | `1.1.x` | `-Dopenssl_1.1.x` | OpenSSL 1.1.x |
 | `libressl` | `-Dlibressl` | LibreSSL |
 
-Windows (`make.ps1`) always builds against LibreSSL. The define is hardcoded on line 70.
+Windows (`make.ps1`) always uses LibreSSL. The define is hardcoded. Prebuilt LibreSSL binaries are downloaded by `.ci-scripts/windows-install-libressl.ps1` rather than built from source.
 
 ### LibreSSL API Divergences from OpenSSL 1.1.x
 
