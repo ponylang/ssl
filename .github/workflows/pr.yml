@@ -61,6 +61,8 @@ jobs:
     name: Windows x86-64 (LibreSSL) with most recent ponyc release
     runs-on: windows-2025
     steps:
+      - name: Disable Windows Defender
+        run: Set-MpPreference -DisableRealtimeMonitoring $true
       - uses: actions/checkout@v6.0.2
       - name: Cache LibreSSL libs
         id: cache-libressl
@@ -87,6 +89,8 @@ jobs:
     name: Windows arm64 (LibreSSL) with most recent ponyc release
     runs-on: windows-11-arm
     steps:
+      - name: Disable Windows Defender
+        run: Set-MpPreference -DisableRealtimeMonitoring $true
       - uses: actions/checkout@v6.0.2
       - name: Cache LibreSSL libs
         id: cache-libressl
