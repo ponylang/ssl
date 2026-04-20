@@ -23,13 +23,13 @@ actor \nodoc\ Main is TestList
     test(Property1UnitTest[USize](_TestHmacSha256Deterministic))
     test(Property1UnitTest[USize](_TestRandBytesOutputLength))
     test(Property1UnitTest[USize](_TestRandBytesNonConstant))
-    ifdef "openssl_1.1.x" or "openssl_3.0.x" or "libressl" then
+    ifdef "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl" then
       test(_TestPbkdf2Sha256Rfc7914)
       test(_TestPbkdf2Sha256Scram)
       test(Property1UnitTest[USize](_TestPbkdf2Sha256OutputLength))
       test(Property1UnitTest[USize](_TestPbkdf2Sha256Deterministic))
     end
-    ifdef "openssl_3.0.x" then
+    ifdef "openssl_3.0.x" or "openssl_4.0.x" then
       test(Property1UnitTest[USize](_TestShake128OutputLength))
       test(Property1UnitTest[USize](_TestShake256OutputLength))
       test(Property1UnitTest[USize](_TestShake128XofPrefix))
@@ -179,7 +179,7 @@ class \nodoc\ iso _TestDigest is UnitTest
       "cd945c6a77006272322f911c9be31fa970043daa4b61cee607566cbfa2c69b09",
       ToHexString(sha512.final()))
 
-    ifdef "openssl_1.1.x" or "openssl_3.0.x" then
+    ifdef "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" then
       let shake128 = Digest.shake128()
       shake128.append("message1")?
       shake128.append("message2")?
@@ -326,7 +326,7 @@ class \nodoc\ iso _TestPbkdf2Sha256Rfc7914 is UnitTest
   fun name(): String => "crypto/Pbkdf2Sha256/RFC7914"
 
   fun apply(h: TestHelper) ? =>
-    ifdef "openssl_1.1.x" or "openssl_3.0.x" or "libressl" then
+    ifdef "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl" then
       // Test Vector 1: Password "passwd", Salt "salt", c=1, dkLen=64
       h.assert_eq[String](
         "55ac046e56e3089fec1691c22544b605f94185216dde0465e68b9d57c20dacbc" +
@@ -349,7 +349,7 @@ class \nodoc\ iso _TestPbkdf2Sha256Scram is UnitTest
   fun name(): String => "crypto/Pbkdf2Sha256/SCRAM"
 
   fun apply(h: TestHelper) ? =>
-    ifdef "openssl_1.1.x" or "openssl_3.0.x" or "libressl" then
+    ifdef "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl" then
       // Salt: decoded bytes of base64 "W22ZaJ0SNY7soEsUEjb6gQ=="
       let salt = recover val [as U8:
         0x5b; 0x6d; 0x99; 0x68; 0x9d; 0x12; 0x35; 0x8e
@@ -408,7 +408,7 @@ class \nodoc\ iso _TestPbkdf2Sha256OutputLength is Property1[USize]
     Generators.usize(1, 128)
 
   fun ref property(sample: USize, h: PropertyHelper) ? =>
-    ifdef "openssl_1.1.x" or "openssl_3.0.x" or "libressl" then
+    ifdef "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl" then
       h.assert_eq[USize](sample,
         Pbkdf2Sha256("p", "s", 1, sample)?.size())
     end
@@ -420,7 +420,7 @@ class \nodoc\ iso _TestPbkdf2Sha256Deterministic is Property1[USize]
     Generators.usize(1, 64)
 
   fun ref property(sample: USize, h: PropertyHelper) ? =>
-    ifdef "openssl_1.1.x" or "openssl_3.0.x" or "libressl" then
+    ifdef "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl" then
       h.assert_array_eq[U8](
         Pbkdf2Sha256("p", "s", 1, sample)?,
         Pbkdf2Sha256("p", "s", 1, sample)?)
@@ -453,7 +453,7 @@ class \nodoc\ iso _TestShake128OutputLength is Property1[USize]
     Generators.usize(1, 256)
 
   fun ref property(sample: USize, h: PropertyHelper) ? =>
-    ifdef "openssl_3.0.x" then
+    ifdef "openssl_3.0.x" or "openssl_4.0.x" then
       let d = Digest.shake128(sample)
       d.append("test")?
       h.assert_eq[USize](sample, d.final().size())
@@ -466,7 +466,7 @@ class \nodoc\ iso _TestShake256OutputLength is Property1[USize]
     Generators.usize(1, 256)
 
   fun ref property(sample: USize, h: PropertyHelper) ? =>
-    ifdef "openssl_3.0.x" then
+    ifdef "openssl_3.0.x" or "openssl_4.0.x" then
       let d = Digest.shake256(sample)
       d.append("test")?
       h.assert_eq[USize](sample, d.final().size())
@@ -479,7 +479,7 @@ class \nodoc\ iso _TestShake128XofPrefix is Property1[USize]
     Generators.usize(2, 256)
 
   fun ref property(sample: USize, h: PropertyHelper) ? =>
-    ifdef "openssl_3.0.x" then
+    ifdef "openssl_3.0.x" or "openssl_4.0.x" then
       let small_size = sample / 2
       let large_size = sample
 
@@ -502,7 +502,7 @@ class \nodoc\ iso _TestShake256XofPrefix is Property1[USize]
     Generators.usize(2, 256)
 
   fun ref property(sample: USize, h: PropertyHelper) ? =>
-    ifdef "openssl_3.0.x" then
+    ifdef "openssl_3.0.x" or "openssl_4.0.x" then
       let small_size = sample / 2
       let large_size = sample
 

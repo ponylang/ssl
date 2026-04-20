@@ -57,6 +57,16 @@ jobs:
       - name: Test
         run: make test config=debug ssl=3.0.x
 
+  test-openssl-4-vs-ponyc-release:
+    name: OpenSSL 4.x with most recent ponyc release
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/ponylang/shared-docker-ci-standard-builder-with-openssl-4.0.0:release
+    steps:
+      - uses: actions/checkout@v6.0.2
+      - name: Test
+        run: make test config=debug ssl=4.0.x
+
   test-x86-64-windows-vs-ponyc-release:
     name: Windows x86-64 (LibreSSL) with most recent ponyc release
     runs-on: windows-2025

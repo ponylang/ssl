@@ -14,8 +14,8 @@ actor Main
       env.out.print("Error computing hash")
     end
 
-    // SHAKE256 with variable-length output (OpenSSL 3.0.x only)
-    ifdef "openssl_3.0.x" then
+    // SHAKE256 with variable-length output (OpenSSL 3.0.x or 4.0.x)
+    ifdef "openssl_3.0.x" or "openssl_4.0.x" then
       let shake: Digest = Digest.shake256(64)
       try
         shake.append("Hello ")?

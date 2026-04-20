@@ -10,11 +10,11 @@ use @SSL_CTX_ctrl[ILong](
   op: I32,
   arg: ULong,
   parg: Pointer[None])
-use @TLS_method[Pointer[None]]() if "openssl_1.1.x" or "openssl_3.0.x" or "libressl"
+use @TLS_method[Pointer[None]]() if "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl"
 use @SSL_CTX_new[Pointer[_SSLContext]](method: Pointer[None])
 use @SSL_CTX_free[None](ctx: Pointer[_SSLContext] tag)
-use @SSL_CTX_clear_options[ULong](ctx: Pointer[_SSLContext] tag, opts: ULong) if "openssl_1.1.x" or "openssl_3.0.x"
-use @SSL_CTX_set_options[ULong](ctx: Pointer[_SSLContext] tag, opts: ULong) if "openssl_1.1.x" or "openssl_3.0.x"
+use @SSL_CTX_clear_options[ULong](ctx: Pointer[_SSLContext] tag, opts: ULong) if "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x"
+use @SSL_CTX_set_options[ULong](ctx: Pointer[_SSLContext] tag, opts: ULong) if "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x"
 use @SSL_CTX_use_certificate_chain_file[I32](ctx: Pointer[_SSLContext] tag, file: Pointer[U8] tag)
 use @SSL_CTX_use_PrivateKey_file[I32](ctx: Pointer[_SSLContext] tag, file: Pointer[U8] tag, typ: I32)
 use @SSL_CTX_check_private_key[I32](ctx: Pointer[_SSLContext] tag)
@@ -35,9 +35,9 @@ use @CertCloseStore[Bool](store: Pointer[U8] tag, flags: U32) if windows
 use @SSL_CTX_set_cipher_list[I32](ctx: Pointer[_SSLContext] tag, control: Pointer[U8] tag)
 use @SSL_CTX_set_verify_depth[None](ctx: Pointer[_SSLContext] tag, depth: U32)
 use @SSL_CTX_set_alpn_select_cb[None](ctx: Pointer[_SSLContext] tag, cb: _ALPNSelectCallback,
-   resolver: ALPNProtocolResolver) if "openssl_1.1.x" or "openssl_3.0.x" or "libressl"
+   resolver: ALPNProtocolResolver) if "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl"
 use @SSL_CTX_set_alpn_protos[I32](ctx: Pointer[_SSLContext] tag, protos: Pointer[U8] tag,
-  protos_len: USize) if "openssl_1.1.x" or "openssl_3.0.x" or "libressl"
+  protos_len: USize) if "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl"
 
 primitive _SSLContext
 
@@ -68,7 +68,7 @@ class val SSLContext
     """
     Create an SSL context.
     """
-    ifdef "openssl_1.1.x" or "openssl_3.0.x" or "libressl" then
+    ifdef "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl" then
       _ctx = @SSL_CTX_new(@TLS_method())
 
       // Allow only newer ciphers.
@@ -81,7 +81,7 @@ class val SSLContext
     end
 
   fun _set_options(opts: ULong) =>
-    ifdef "openssl_1.1.x" or "openssl_3.0.x" then
+    ifdef "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" then
       @SSL_CTX_set_options(_ctx, opts)
     elseif "libressl" then
       @SSL_CTX_ctrl(_ctx, _SslCtrlSetOptions(), opts, Pointer[None])
@@ -90,7 +90,7 @@ class val SSLContext
     end
 
   fun _clear_options(opts: ULong) =>
-    ifdef "openssl_1.1.x" or "openssl_3.0.x" then
+    ifdef "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" then
       @SSL_CTX_clear_options(_ctx, opts)
     elseif "libressl" then
       @SSL_CTX_ctrl(_ctx, _SslCtrlClearOptions(), opts, Pointer[None])
@@ -293,9 +293,8 @@ class val SSLContext
     Use `resolver` to choose the protocol to be selected for incomming connections.
 
     Returns true on success.
-    Supported on OpenSSL 1.1.x, OpenSSL 3.0.x, and LibreSSL.
     """
-    ifdef "openssl_1.1.x" or "openssl_3.0.x" or "libressl" then
+    ifdef "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl" then
       @SSL_CTX_set_alpn_select_cb(
         _ctx, addressof SSLContext._alpn_select_cb, resolver)
       return true
@@ -309,9 +308,8 @@ class val SSLContext
     protocol names must have a size of 1 to 255
 
     Returns true on success.
-    Supported on OpenSSL 1.1.x, OpenSSL 3.0.x, and LibreSSL.
     """
-    ifdef "openssl_1.1.x" or "openssl_3.0.x" or "libressl" then
+    ifdef "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl" then
       try
         let proto_list = _ALPNProtocolList.from_array(protocols)?
         let result =
