@@ -15,6 +15,7 @@ SSL version is **required**. Valid values:
 
 | `ssl=` value | Define passed to ponyc | Backend |
 |---|---|---|
+| `4.0.x` | `-Dopenssl_4.0.x` | OpenSSL 4.x |
 | `3.0.x` | `-Dopenssl_3.0.x` | OpenSSL 3.x |
 | `1.1.x` | `-Dopenssl_1.1.x` | OpenSSL 1.1.x |
 | `libressl` | `-Dlibressl` | LibreSSL |
@@ -37,12 +38,12 @@ Version-specific code uses two patterns:
 
 **FFI declarations** use `if` guards on the `use` statement:
 ```pony
-use @TLS_method[Pointer[None]]() if "openssl_1.1.x" or "openssl_3.0.x" or "libressl"
+use @TLS_method[Pointer[None]]() if "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl"
 ```
 
 **Code blocks** use `ifdef` with `elseif` chains and a compile_error catch-all:
 ```pony
-ifdef "openssl_1.1.x" or "openssl_3.0.x" then
+ifdef "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" then
   // OpenSSL path
 elseif "libressl" then
   // LibreSSL path (when it diverges from OpenSSL)

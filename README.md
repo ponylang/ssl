@@ -17,7 +17,7 @@ Production ready.
 
 ## Supported SSL versions
 
-OpenSSL 1.1.x, OpenSSL 3.0.x, and LibreSSL are supported. Select the library version at compile-time using Pony's compile time definition functionality.
+OpenSSL 1.1.x, OpenSSL 3.0.x, OpenSSL 4.0.x, and LibreSSL are supported. Select the library version at compile-time using Pony's compile time definition functionality.
 
 ### Using OpenSSL 1.1.x
 
@@ -29,6 +29,12 @@ corral run -- ponyc -Dopenssl_1.1.x
 
 ```bash
 corral run -- ponyc -Dopenssl_3.0.x
+```
+
+### Using OpenSSL 4.0.x
+
+```bash
+corral run -- ponyc -Dopenssl_4.0.x
 ```
 
 ### Using LibreSSL

@@ -6,7 +6,7 @@ use @PKCS5_PBKDF2_HMAC[I32](
   pass: Pointer[U8] tag, passlen: I32,
   salt: Pointer[U8] tag, saltlen: I32, iter: I32,
   digest: Pointer[_EVPMD],
-  keylen: I32, out: Pointer[U8] tag) if "openssl_1.1.x" or "openssl_3.0.x" or "libressl"
+  keylen: I32, out: Pointer[U8] tag) if "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl"
 
 primitive Pbkdf2Sha256
   """
@@ -16,8 +16,6 @@ primitive Pbkdf2Sha256
   Returns a key of the requested length, or raises an error if the derivation
   fails (e.g., zero iterations).
 
-  Supported on OpenSSL 1.1.x, OpenSSL 3.0.x, and LibreSSL.
-
   ```pony
   let key = Pbkdf2Sha256("password", "salt", 4096, 32)?
   ```
@@ -25,7 +23,7 @@ primitive Pbkdf2Sha256
   fun tag apply(password: ByteSeq, salt: ByteSeq, iterations: U32,
     key_length: USize): Array[U8] val ?
   =>
-    ifdef "openssl_1.1.x" or "openssl_3.0.x" or "libressl" then
+    ifdef "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl" then
       recover
         let arr = Array[U8].init(0, key_length)
         let rc = @PKCS5_PBKDF2_HMAC(

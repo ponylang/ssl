@@ -3,12 +3,12 @@ use "path:/opt/homebrew/opt/libressl/lib" if osx and arm
 use "lib:crypto"
 use "lib:bcrypt" if windows
 
-use @EVP_MD_CTX_new[Pointer[_EVPCTX]]() if "openssl_1.1.x" or "openssl_3.0.x" or "libressl"
+use @EVP_MD_CTX_new[Pointer[_EVPCTX]]() if "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl"
 use @EVP_DigestInit_ex[I32](ctx: Pointer[_EVPCTX] tag, t: Pointer[_EVPMD], impl: USize)
 use @EVP_DigestUpdate[I32](ctx: Pointer[_EVPCTX] tag, d: Pointer[U8] tag, cnt: USize)
 use @EVP_DigestFinal_ex[I32](ctx: Pointer[_EVPCTX] tag, md: Pointer[U8] tag, s: Pointer[USize])
-use @EVP_DigestFinalXOF[I32](ctx: Pointer[_EVPCTX] tag, md: Pointer[U8] tag, len: USize) if "openssl_3.0.x"
-use @EVP_MD_CTX_free[None](ctx: Pointer[_EVPCTX]) if "openssl_1.1.x" or "openssl_3.0.x" or "libressl"
+use @EVP_DigestFinalXOF[I32](ctx: Pointer[_EVPCTX] tag, md: Pointer[U8] tag, len: USize) if "openssl_3.0.x" or "openssl_4.0.x"
+use @EVP_MD_CTX_free[None](ctx: Pointer[_EVPCTX]) if "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl"
 
 use @EVP_md5[Pointer[_EVPMD]]()
 use @EVP_ripemd160[Pointer[_EVPMD]]()
@@ -39,7 +39,7 @@ class Digest
     """
     _variable_length = false
     _digest_size = 16
-    ifdef "openssl_1.1.x" or "openssl_3.0.x" or "libressl" then
+    ifdef "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl" then
       _ctx = @EVP_MD_CTX_new()
     else
       compile_error "You must select an SSL version to use."
@@ -52,7 +52,7 @@ class Digest
     """
     _variable_length = false
     _digest_size = 20
-    ifdef "openssl_1.1.x" or "openssl_3.0.x" or "libressl" then
+    ifdef "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl" then
       _ctx = @EVP_MD_CTX_new()
     else
       compile_error "You must select an SSL version to use."
@@ -65,7 +65,7 @@ class Digest
     """
     _variable_length = false
     _digest_size = 20
-    ifdef "openssl_1.1.x" or "openssl_3.0.x" or "libressl" then
+    ifdef "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl" then
       _ctx = @EVP_MD_CTX_new()
     else
       compile_error "You must select an SSL version to use."
@@ -78,7 +78,7 @@ class Digest
     """
     _variable_length = false
     _digest_size = 28
-    ifdef "openssl_1.1.x" or "openssl_3.0.x" or "libressl" then
+    ifdef "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl" then
       _ctx = @EVP_MD_CTX_new()
     else
       compile_error "You must select an SSL version to use."
@@ -91,7 +91,7 @@ class Digest
     """
     _variable_length = false
     _digest_size = 32
-    ifdef "openssl_1.1.x" or "openssl_3.0.x" or "libressl" then
+    ifdef "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl" then
       _ctx = @EVP_MD_CTX_new()
     else
       compile_error "You must select an SSL version to use."
@@ -104,7 +104,7 @@ class Digest
     """
     _variable_length = false
     _digest_size = 48
-    ifdef "openssl_1.1.x" or "openssl_3.0.x" or "libressl" then
+    ifdef "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl" then
       _ctx = @EVP_MD_CTX_new()
     else
       compile_error "You must select an SSL version to use."
@@ -117,7 +117,7 @@ class Digest
     """
     _variable_length = false
     _digest_size = 64
-    ifdef "openssl_1.1.x" or "openssl_3.0.x" or "libressl" then
+    ifdef "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl" then
       _ctx = @EVP_MD_CTX_new()
     else
       compile_error "You must select an SSL version to use."
@@ -130,11 +130,11 @@ class Digest
 
     SHAKE128 is an extendable output function (XOF) that can produce
     variable-length output. The `size'` parameter controls the output length
-    in bytes (default: 16). Variable-length output requires OpenSSL 3.0.x;
-    on OpenSSL 1.1.x, the default size is always used.
+    in bytes (default: 16). Variable-length output requires OpenSSL 3.0.x or
+    OpenSSL 4.0.x; on OpenSSL 1.1.x, the default size is always used.
     """
-    ifdef "openssl_1.1.x" or "openssl_3.0.x" then
-      ifdef "openssl_3.0.x" then
+    ifdef "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" then
+      ifdef "openssl_3.0.x" or "openssl_4.0.x" then
         _variable_length = true
         _digest_size = size'
       else
@@ -144,7 +144,7 @@ class Digest
       _ctx = @EVP_MD_CTX_new()
       @EVP_DigestInit_ex(_ctx, @EVP_shake128(), USize(0))
     else
-      compile_error "shake128 is only supported with OpenSSL 1.1.x or 3.0.x"
+      compile_error "shake128 is only supported with OpenSSL 1.1.x, 3.0.x, or 4.0.x"
     end
 
   new shake256(size': USize = 32) =>
@@ -153,11 +153,11 @@ class Digest
 
     SHAKE256 is an extendable output function (XOF) that can produce
     variable-length output. The `size'` parameter controls the output length
-    in bytes (default: 32). Variable-length output requires OpenSSL 3.0.x;
-    on OpenSSL 1.1.x, the default size is always used.
+    in bytes (default: 32). Variable-length output requires OpenSSL 3.0.x or
+    OpenSSL 4.0.x; on OpenSSL 1.1.x, the default size is always used.
     """
-    ifdef "openssl_1.1.x" or "openssl_3.0.x" then
-      ifdef "openssl_3.0.x" then
+    ifdef "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" then
+      ifdef "openssl_3.0.x" or "openssl_4.0.x" then
         _variable_length = true
         _digest_size = size'
       else
@@ -167,7 +167,7 @@ class Digest
       _ctx = @EVP_MD_CTX_new()
       @EVP_DigestInit_ex(_ctx, @EVP_shake256(), USize(0))
     else
-      compile_error "shake256 is only supported with OpenSSL 1.1.x or 3.0.x"
+      compile_error "shake256 is only supported with OpenSSL 1.1.x, 3.0.x, or 4.0.x"
     end
 
   fun ref append(input: ByteSeq) ? =>
@@ -193,13 +193,13 @@ class Digest
       if not _variable_length then
         @EVP_DigestFinal_ex(_ctx, digest.cpointer(), Pointer[USize])
       else
-        ifdef "openssl_3.0.x" then
+        ifdef "openssl_3.0.x" or "openssl_4.0.x" then
           @EVP_DigestFinalXOF(_ctx, digest.cpointer(), size)
         else
           @EVP_DigestFinal_ex(_ctx, digest.cpointer(), Pointer[USize])
         end
       end
-      ifdef "openssl_1.1.x" or "openssl_3.0.x" or "libressl" then
+      ifdef "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl" then
         @EVP_MD_CTX_free(_ctx)
       else
         compile_error "You must select an SSL version to use."
