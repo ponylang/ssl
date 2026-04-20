@@ -12,10 +12,5 @@
     "documentation_url": "https://ponylang.github.io/ssl",
     "version": "2.1.0",
     "name": "ssl"
-  },
-  "scripts": {
-    "windows": {
-      "post_fetch_or_update": "PowerShell.exe -File make.ps1 -Config release -Command libs"
-    }
   }
 }
