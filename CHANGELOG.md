@@ -9,6 +9,7 @@ All notable changes to this project will be documented in this file. This projec
 
 ### Added
 
+- Add OpenSSL 4.0.x support ([PR #47](https://github.com/ponylang/ssl/pull/47))
 
 ### Changed
 
