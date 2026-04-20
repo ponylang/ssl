@@ -10,7 +10,7 @@
     "homepage": "https://github.com/ponylang/ssl",
     "license": "BSD-2-Clause",
     "documentation_url": "https://ponylang.github.io/ssl",
-    "version": "2.0.1",
+    "version": "2.1.0",
     "name": "ssl"
   },
   "scripts": {
