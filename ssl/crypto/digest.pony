@@ -190,14 +190,16 @@ class Digest
         recover String.from_cpointer(
           @pony_alloc(@pony_ctx(), size), size)
         end
-      if not _variable_length then
-        @EVP_DigestFinal_ex(_ctx, digest.cpointer(), Pointer[USize])
-      else
-        ifdef "openssl_3.0.x" or "openssl_4.0.x" then
+      ifdef "openssl_3.0.x" or "openssl_4.0.x" then
+        if _variable_length then
           @EVP_DigestFinalXOF(_ctx, digest.cpointer(), size)
         else
           @EVP_DigestFinal_ex(_ctx, digest.cpointer(), Pointer[USize])
         end
+      elseif "openssl_1.1.x" or "libressl" then
+        @EVP_DigestFinal_ex(_ctx, digest.cpointer(), Pointer[USize])
+      else
+        compile_error "You must select an SSL version to use."
       end
       ifdef "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl" then
         @EVP_MD_CTX_free(_ctx)

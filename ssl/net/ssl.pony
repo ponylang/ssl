@@ -102,6 +102,8 @@ class SSL
     var len = U32(0)
     ifdef "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl" then
       @SSL_get0_alpn_selected(_ssl, addressof ptr, addressof len)
+    else
+      compile_error "You must select an SSL version to use."
     end
 
     if ptr.is_null() then None
@@ -177,18 +179,21 @@ class SSL
       _read_buf = []
     else
       // try and read again any pending data that SSL hasn't decoded yet
-      if @BIO_ctrl_pending(_input) > 0 then
-        read(expect)
-      else
-        ifdef "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" then
-          // try and read again any data already decoded from SSL that hasn't
-          // been read via `SSL_has_pending` that was added in 1.1
-          // This mailing list post has a good description of what it is for:
+      ifdef "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" then
+        if @BIO_ctrl_pending(_input) > 0 then
+          read(expect)
+        elseif @SSL_has_pending(_ssl) == 1 then
+          // SSL has buffered data that BIO_ctrl_pending cannot see.
           // https://mta.openssl.org/pipermail/openssl-users/2017-January/005110.html
-          if @SSL_has_pending(_ssl) == 1 then
-            read(expect)
-          end
+          read(expect)
         end
+      elseif "libressl" then
+        // LibreSSL does not expose SSL_has_pending.
+        if @BIO_ctrl_pending(_input) > 0 then
+          read(expect)
+        end
+      else
+        compile_error "You must select an SSL version to use."
       end
     end
 

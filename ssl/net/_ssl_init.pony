@@ -4,8 +4,11 @@ use "lib:ssl"
 use "lib:crypto"
 
 use @OPENSSL_init_ssl[I32](opts: U64, settings: Pointer[_OpenSslInitSettings])
+  if "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl"
 use @OPENSSL_INIT_new[Pointer[_OpenSslInitSettings]]()
+  if "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x"
 use @OPENSSL_INIT_free[None](settings: Pointer[_OpenSslInitSettings])
+  if "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x"
 
 primitive _OpenSslInitSettings
 
