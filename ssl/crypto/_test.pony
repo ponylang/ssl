@@ -30,8 +30,10 @@ actor \nodoc\ Main is TestList
       test(Property1UnitTest[USize](_TestPbkdf2Sha256Deterministic))
     end
     ifdef "openssl_3.0.x" or "openssl_4.0.x" then
-      test(Property1UnitTest[USize](_TestShake128OutputLength))
-      test(Property1UnitTest[USize](_TestShake256OutputLength))
+      test(_TestShake128KnownAnswer)
+      test(_TestShake256KnownAnswer)
+      test(Property1UnitTest[USize](_TestShake128XofPrefixSmall))
+      test(Property1UnitTest[USize](_TestShake256XofPrefixSmall))
       test(Property1UnitTest[USize](_TestShake128XofPrefix))
       test(Property1UnitTest[USize](_TestShake256XofPrefix))
     end
@@ -446,37 +448,72 @@ class \nodoc\ iso _TestRandBytesNonConstant is Property1[USize]
     let b = RandBytes(sample)?
     h.assert_false(ConstantTimeCompare(a, b))
 
-class \nodoc\ iso _TestShake128OutputLength is Property1[USize]
-  fun name(): String => "crypto/Shake128/property/output_length"
+class \nodoc\ iso _TestShake128KnownAnswer is UnitTest
+  """
+  Known-answer tests for SHAKE128 at two non-default output lengths.
+  Anchors the XOF path against specific byte values so a silent no-op
+  (zero bytes written) cannot pass.
+  """
+  fun name(): String => "crypto/Shake128/known_answer"
 
-  fun gen(): Generator[USize] =>
-    Generators.usize(1, 256)
-
-  fun ref property(sample: USize, h: PropertyHelper) ? =>
+  fun apply(h: TestHelper) ? =>
     ifdef "openssl_3.0.x" or "openssl_4.0.x" then
-      let d = Digest.shake128(sample)
-      d.append("test")?
-      h.assert_eq[USize](sample, d.final().size())
+      let d32 = Digest.shake128(32)
+      d32.append("message1")?
+      d32.append("message2")?
+      h.assert_eq[String](
+        "0d11671f23b6356bdf4ba8dcae37419df1d0875e1a15c7859eb3ba0096aa262f",
+        ToHexString(d32.final()))
+
+      let d64 = Digest.shake128(64)
+      d64.append("message1")?
+      d64.append("message2")?
+      h.assert_eq[String](
+        "0d11671f23b6356bdf4ba8dcae37419df1d0875e1a15c7859eb3ba0096aa262f" +
+        "3a1cfc86db5b324ac3f8220645ec0740c2171a0b935f362d0c3bfa5ab51be5d0",
+        ToHexString(d64.final()))
     end
 
-class \nodoc\ iso _TestShake256OutputLength is Property1[USize]
-  fun name(): String => "crypto/Shake256/property/output_length"
+class \nodoc\ iso _TestShake256KnownAnswer is UnitTest
+  """
+  Known-answer tests for SHAKE256 at two non-default output lengths.
+  Anchors the XOF path against specific byte values so a silent no-op
+  (zero bytes written) cannot pass.
+  """
+  fun name(): String => "crypto/Shake256/known_answer"
 
-  fun gen(): Generator[USize] =>
-    Generators.usize(1, 256)
-
-  fun ref property(sample: USize, h: PropertyHelper) ? =>
+  fun apply(h: TestHelper) ? =>
     ifdef "openssl_3.0.x" or "openssl_4.0.x" then
-      let d = Digest.shake256(sample)
-      d.append("test")?
-      h.assert_eq[USize](sample, d.final().size())
+      let d64 = Digest.shake256(64)
+      d64.append("message1")?
+      d64.append("message2")?
+      h.assert_eq[String](
+        "80e2bbb14639e3b1fc1df80b47b67fb518b0ed26a1caddfa10d68f7992c33820" +
+        "2d0b17a5ebbcef93f51247497f60bcd3f2809a967874d017ef5b51d6b08836cc",
+        ToHexString(d64.final()))
+
+      let d128 = Digest.shake256(128)
+      d128.append("message1")?
+      d128.append("message2")?
+      h.assert_eq[String](
+        "80e2bbb14639e3b1fc1df80b47b67fb518b0ed26a1caddfa10d68f7992c33820" +
+        "2d0b17a5ebbcef93f51247497f60bcd3f2809a967874d017ef5b51d6b08836cc" +
+        "af79f3db3fafdf89e7d42270472c3d1a8e55c52a30859e01b5fceba359c21c1e" +
+        "76b73180378604d46061c87e65c4740c8ff9721ed16465cef66fefc3c6f2070c",
+        ToHexString(d128.final()))
     end
 
-class \nodoc\ iso _TestShake128XofPrefix is Property1[USize]
-  fun name(): String => "crypto/Shake128/property/xof_prefix"
+class \nodoc\ iso _TestShake128XofPrefixSmall is Property1[USize]
+  """
+  SHAKE128 prefix property at small output sizes (2..15 bytes). Exercises
+  the truncation path where off-by-one partial-block bugs typically live.
+  No KAT anchor — sizes below 16 are guarded by _TestShake128XofPrefix
+  at larger sizes.
+  """
+  fun name(): String => "crypto/Shake128/property/xof_prefix_small"
 
   fun gen(): Generator[USize] =>
-    Generators.usize(2, 256)
+    Generators.usize(2, 15)
 
   fun ref property(sample: USize, h: PropertyHelper) ? =>
     ifdef "openssl_3.0.x" or "openssl_4.0.x" then
@@ -495,11 +532,53 @@ class \nodoc\ iso _TestShake128XofPrefix is Property1[USize]
         large_result.trim(0, small_size))
     end
 
-class \nodoc\ iso _TestShake256XofPrefix is Property1[USize]
-  fun name(): String => "crypto/Shake256/property/xof_prefix"
+class \nodoc\ iso _TestShake128XofPrefix is Property1[USize]
+  """
+  SHAKE128 prefix property: the first N bytes of output at length M (M > N)
+  are identical to the full output at length N. A KAT anchor at the full
+  length prevents any no-op or incorrect XOF implementation from satisfying
+  the prefix equality (an all-zero buffer would trivially equal its own
+  prefix).
+  """
+  fun name(): String => "crypto/Shake128/property/xof_prefix"
 
   fun gen(): Generator[USize] =>
-    Generators.usize(2, 256)
+    // Minimum 16 so the 16-byte KAT anchor below always applies.
+    Generators.usize(16, 256)
+
+  fun ref property(sample: USize, h: PropertyHelper) ? =>
+    ifdef "openssl_3.0.x" or "openssl_4.0.x" then
+      let small_size = sample / 2
+      let large_size = sample
+
+      let small = Digest.shake128(small_size)
+      small.append("test input")?
+      let small_result = small.final()
+
+      let large = Digest.shake128(large_size)
+      large.append("test input")?
+      let large_result = large.final()
+
+      h.assert_array_eq[U8](small_result,
+        large_result.trim(0, small_size))
+
+      // KAT anchor: first 16 bytes of SHAKE128("test input").
+      h.assert_eq[String](
+        "a9d2b0362d0e2e961eeb969ce9a42f2d",
+        ToHexString(large_result.trim(0, 16)))
+    end
+
+class \nodoc\ iso _TestShake256XofPrefixSmall is Property1[USize]
+  """
+  SHAKE256 prefix property at small output sizes (2..31 bytes). Exercises
+  the truncation path where off-by-one partial-block bugs typically live.
+  No KAT anchor — sizes below 32 are guarded by _TestShake256XofPrefix
+  at larger sizes.
+  """
+  fun name(): String => "crypto/Shake256/property/xof_prefix_small"
+
+  fun gen(): Generator[USize] =>
+    Generators.usize(2, 31)
 
   fun ref property(sample: USize, h: PropertyHelper) ? =>
     ifdef "openssl_3.0.x" or "openssl_4.0.x" then
@@ -516,6 +595,42 @@ class \nodoc\ iso _TestShake256XofPrefix is Property1[USize]
 
       h.assert_array_eq[U8](small_result,
         large_result.trim(0, small_size))
+    end
+
+class \nodoc\ iso _TestShake256XofPrefix is Property1[USize]
+  """
+  SHAKE256 prefix property: the first N bytes of output at length M (M > N)
+  are identical to the full output at length N. A KAT anchor at the full
+  length prevents any no-op or incorrect XOF implementation from satisfying
+  the prefix equality (an all-zero buffer would trivially equal its own
+  prefix).
+  """
+  fun name(): String => "crypto/Shake256/property/xof_prefix"
+
+  fun gen(): Generator[USize] =>
+    // Minimum 32 so the 32-byte KAT anchor below always applies.
+    Generators.usize(32, 256)
+
+  fun ref property(sample: USize, h: PropertyHelper) ? =>
+    ifdef "openssl_3.0.x" or "openssl_4.0.x" then
+      let small_size = sample / 2
+      let large_size = sample
+
+      let small = Digest.shake256(small_size)
+      small.append("test input")?
+      let small_result = small.final()
+
+      let large = Digest.shake256(large_size)
+      large.append("test input")?
+      let large_result = large.final()
+
+      h.assert_array_eq[U8](small_result,
+        large_result.trim(0, small_size))
+
+      // KAT anchor: first 32 bytes of SHAKE256("test input").
+      h.assert_eq[String](
+        "e952d90136cb23413ff22b266e2f5dd42294a34bc311394b04863c039011f179",
+        ToHexString(large_result.trim(0, 32)))
     end
 
 class \nodoc\ iso _TestHashFnOutputLength is Property1[USize]

@@ -17,6 +17,8 @@ actor \nodoc\ Main is TestList
     test(_TestTCPSSLMute)
     test(_TestTCPSSLUnmute)
     test(_TestTCPSSLClientVerifyFalseWithHostname)
+    test(_TestTCPSSLPeerCertificateVerify)
+    test(_TestTCPSSLPeerCertificateHostnameMismatch)
     ifdef windows then
       test(_TestWindowsLoadRootCertificates)
     else
@@ -258,10 +260,10 @@ class \nodoc\ iso _TestTCPSSLUnmute is UnitTest
 class \nodoc\ iso _TestTCPSSLClientVerifyFalseWithHostname is UnitTest
   """
   Test that set_client_verify(false) disables hostname verification.
-  The test certificate has no SAN or CN matching "localhost", so with
-  verification enabled, a client created with hostname "localhost" would
-  fail hostname verification. With set_client_verify(false), the connection
-  should succeed.
+  The test certificate's SAN contains only "localhost" and 127.0.0.1, so
+  with verification enabled, a client created with hostname
+  "nomatch.example.com" would fail hostname verification. With
+  set_client_verify(false), the connection should succeed.
   """
   fun name(): String => "net/TCPSSL.client_verify_false_with_hostname"
   fun exclusion_group(): String => "network"
@@ -288,7 +290,7 @@ class \nodoc\ iso _TestTCPSSLClientVerifyFalseWithHostname is UnitTest
 
     let ssl_client =
       try
-        sslctx.client("localhost")?
+        sslctx.client("nomatch.example.com")?
       else
         h.fail("failed getting ssl client session")
         return
@@ -326,6 +328,205 @@ class \nodoc\ _TestTCPSSLClientVerifyFalseNotify is TCPConnectionNotify
     _h.fail("hostname verification should have been skipped")
 
 class \nodoc\ _TestTCPSSLClientVerifyFalseServerNotify is TCPConnectionNotify
+  let _h: TestHelper
+
+  new iso create(h: TestHelper) =>
+    _h = h
+
+  fun ref connect_failed(conn: TCPConnection ref) =>
+    _h.fail_action("server connect failed")
+
+class \nodoc\ iso _TestTCPSSLPeerCertificateVerify is UnitTest
+  """
+  Full TLS handshake with the default `_client_verify = true` and a
+  hostname matching the test certificate's SAN. Exercises the
+  SSL_get1_peer_certificate / SSL_get_peer_certificate FFI binding in
+  SSL._verify_hostname. The client notify's `connected` fires only when
+  SSL state reaches SSLReady, which requires the peer certificate to be
+  retrieved and matched successfully.
+
+  The client and server use separate SSLContexts: the client context has
+  no local certificate (only set_authority for trust), the server context
+  has the cert. This separation distinguishes peer-cert retrieval from
+  local-cert retrieval — a regression that called SSL_get_certificate
+  (local cert) instead of SSL_get1_peer_certificate (peer cert) would
+  return NULL on the client and fail verification.
+  """
+  fun name(): String => "net/TCPSSL.peer_certificate_verify"
+  fun exclusion_group(): String => "network"
+
+  fun ref apply(h: TestHelper) =>
+    h.expect_action("client connected")
+
+    let auth = FileAuth(h.env.root)
+    let client_ctx =
+      try
+        recover
+          SSLContext
+            .> set_authority(FilePath(auth, "assets/cert.pem"))?
+        end
+      else
+        h.fail("client ssl context setup failed")
+        return
+      end
+    // set_server_verify(false): the server does not verify the client,
+    // so the client has no cert to present and no hostname for the
+    // server to check.
+    let server_ctx =
+      try
+        recover
+          SSLContext
+            .> set_cert(
+                FilePath(auth, "assets/cert.pem"),
+                FilePath(auth, "assets/key.pem"))?
+            .> set_server_verify(false)
+        end
+      else
+        h.fail("server ssl context setup failed")
+        return
+      end
+
+    let ssl_client =
+      try
+        client_ctx.client("localhost")?
+      else
+        h.fail("failed getting ssl client session")
+        return
+      end
+    let ssl_server =
+      try
+        server_ctx.server()?
+      else
+        h.fail("failed getting ssl server session")
+        return
+      end
+
+    _TestTCP(h)(
+      SSLConnection(
+        _TestTCPSSLPeerCertificateVerifyClientNotify(h),
+        consume ssl_client),
+      SSLConnection(
+        _TestTCPSSLPeerCertificateVerifyServerNotify(h),
+        consume ssl_server))
+
+class \nodoc\ _TestTCPSSLPeerCertificateVerifyClientNotify is TCPConnectionNotify
+  let _h: TestHelper
+
+  new iso create(h: TestHelper) =>
+    _h = h
+
+  fun ref connected(conn: TCPConnection ref) =>
+    _h.complete_action("client connected")
+    _h.complete(true)
+
+  fun ref connect_failed(conn: TCPConnection ref) =>
+    _h.fail_action("client connect failed")
+
+  fun ref auth_failed(conn: TCPConnection ref) =>
+    _h.fail("hostname verification should have succeeded")
+
+class \nodoc\ _TestTCPSSLPeerCertificateVerifyServerNotify is TCPConnectionNotify
+  let _h: TestHelper
+
+  new iso create(h: TestHelper) =>
+    _h = h
+
+  fun ref connect_failed(conn: TCPConnection ref) =>
+    _h.fail_action("server connect failed")
+
+class \nodoc\ iso _TestTCPSSLPeerCertificateHostnameMismatch is UnitTest
+  """
+  TLS handshake with the default `_client_verify = true` and a hostname
+  NOT matching the test certificate's SAN. The handshake itself succeeds
+  (self-signed CA is trusted) but X509.valid_for_host rejects the
+  hostname, SSL state becomes SSLAuthFail, and SSLConnection forwards
+  `auth_failed` to the wrapped notify. Complements the positive test by
+  proving that hostname matching actually gates the outcome; without
+  this, a trivially broken `valid_for_host` that always returned true
+  would pass the positive test.
+
+  Uses separate client and server SSLContexts for the same reason as
+  the positive test — see `_TestTCPSSLPeerCertificateVerify`.
+
+  Note: the test asserts SSLAuthFail is reached but cannot by itself
+  distinguish a hostname-mismatch failure from any other auth failure
+  (e.g. chain validation). The pair with `_TestTCPSSLPeerCertificateVerify`
+  — which would also fail under a broken chain — provides the
+  distinguishing signal.
+  """
+  fun name(): String => "net/TCPSSL.peer_certificate_hostname_mismatch"
+  fun exclusion_group(): String => "network"
+
+  fun ref apply(h: TestHelper) =>
+    h.expect_action("client auth failed")
+
+    let auth = FileAuth(h.env.root)
+    let client_ctx =
+      try
+        recover
+          SSLContext
+            .> set_authority(FilePath(auth, "assets/cert.pem"))?
+        end
+      else
+        h.fail("client ssl context setup failed")
+        return
+      end
+    let server_ctx =
+      try
+        recover
+          SSLContext
+            .> set_cert(
+                FilePath(auth, "assets/cert.pem"),
+                FilePath(auth, "assets/key.pem"))?
+            .> set_server_verify(false)
+        end
+      else
+        h.fail("server ssl context setup failed")
+        return
+      end
+
+    let ssl_client =
+      try
+        client_ctx.client("nomatch.example.com")?
+      else
+        h.fail("failed getting ssl client session")
+        return
+      end
+    let ssl_server =
+      try
+        server_ctx.server()?
+      else
+        h.fail("failed getting ssl server session")
+        return
+      end
+
+    _TestTCP(h)(
+      SSLConnection(
+        _TestTCPSSLPeerCertificateHostnameMismatchClientNotify(h),
+        consume ssl_client),
+      SSLConnection(
+        _TestTCPSSLPeerCertificateHostnameMismatchServerNotify(h),
+        consume ssl_server))
+
+class \nodoc\ _TestTCPSSLPeerCertificateHostnameMismatchClientNotify
+  is TCPConnectionNotify
+  let _h: TestHelper
+
+  new iso create(h: TestHelper) =>
+    _h = h
+
+  fun ref connected(conn: TCPConnection ref) =>
+    _h.fail("connected fired despite hostname mismatch")
+
+  fun ref connect_failed(conn: TCPConnection ref) =>
+    _h.fail_action("client connect failed")
+
+  fun ref auth_failed(conn: TCPConnection ref) =>
+    _h.complete_action("client auth failed")
+    _h.complete(true)
+
+class \nodoc\ _TestTCPSSLPeerCertificateHostnameMismatchServerNotify
+  is TCPConnectionNotify
   let _h: TestHelper
 
   new iso create(h: TestHelper) =>
