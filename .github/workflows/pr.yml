@@ -69,7 +69,7 @@ jobs:
 
   test-x86-64-windows-vs-ponyc-release:
     name: Windows x86-64 (LibreSSL) with most recent ponyc release
-    runs-on: windows-2025
+    runs-on: windows-2025-vs2026
     steps:
       - name: Disable Windows Defender
         run: Set-MpPreference -DisableRealtimeMonitoring $true
