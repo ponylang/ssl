@@ -1,25 +1,25 @@
 use "collections"
 use "net"
 
-use @pony_os_ip_string[Pointer[U8]](src: Pointer[U8], len: I32)
-use @X509_get_subject_name[Pointer[_X509Name]](cert: Pointer[X509])
-use @X509_NAME_get_text_by_NID[I32](name: Pointer[_X509Name], nid: I32,
+use @pony_os_ip_string[Pointer[U8]](src: UnsafePointer[U8], len: I32)
+use @X509_get_subject_name[UnsafePointer[_X509Name]](cert: UnsafePointer[X509])
+use @X509_NAME_get_text_by_NID[I32](name: UnsafePointer[_X509Name], nid: I32,
   buf: Pointer[U8] tag, len: I32)
-use @X509_get_ext_d2i[Pointer[_GeneralNameStack]](cert: Pointer[X509],
-  nid: I32, crit: Pointer[U8], idx: Pointer[U8])
-use @OPENSSL_sk_pop[Pointer[_GeneralName]](stack: Pointer[_GeneralNameStack])
+use @X509_get_ext_d2i[UnsafePointer[_GeneralNameStack]](cert: UnsafePointer[X509],
+  nid: I32, crit: UnsafePointer[U8], idx: UnsafePointer[U8])
+use @OPENSSL_sk_pop[UnsafePointer[_GeneralName]](stack: UnsafePointer[_GeneralNameStack])
   if "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x"
-use @sk_pop[Pointer[_GeneralName]](stack: Pointer[_GeneralNameStack])
+use @sk_pop[UnsafePointer[_GeneralName]](stack: UnsafePointer[_GeneralNameStack])
   if "libressl"
-use @GENERAL_NAME_get0_value[Pointer[U8] tag](name: Pointer[_GeneralName],
+use @GENERAL_NAME_get0_value[UnsafePointer[U8] tag](name: UnsafePointer[_GeneralName],
   ptype: Pointer[I32])
-use @ASN1_STRING_type[I32](value: Pointer[U8] tag)
-use @ASN1_STRING_get0_data[Pointer[U8]](value: Pointer[U8] tag)
-use @ASN1_STRING_length[I32](value: Pointer[U8] tag)
-use @GENERAL_NAME_free[None](name: Pointer[_GeneralName])
-use @OPENSSL_sk_free[None](stack: Pointer[_GeneralNameStack])
+use @ASN1_STRING_type[I32](value: UnsafePointer[U8] tag)
+use @ASN1_STRING_get0_data[UnsafePointer[U8]](value: UnsafePointer[U8] tag)
+use @ASN1_STRING_length[I32](value: UnsafePointer[U8] tag)
+use @GENERAL_NAME_free[None](name: UnsafePointer[_GeneralName])
+use @OPENSSL_sk_free[None](stack: UnsafePointer[_GeneralNameStack])
   if "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x"
-use @sk_free[None](stack: Pointer[_GeneralNameStack])
+use @sk_free[None](stack: UnsafePointer[_GeneralNameStack])
   if "libressl"
 
 primitive _X509Name
@@ -27,7 +27,7 @@ primitive _GeneralName
 primitive _GeneralNameStack
 
 primitive X509
-  fun valid_for_host(cert: Pointer[X509], host: String): Bool =>
+  fun valid_for_host(cert: UnsafePointer[X509], host: String): Bool =>
     """
     Checks if an OpenSSL X509 certificate is valid for a given host.
     """
@@ -38,7 +38,7 @@ primitive X509
     end
     false
 
-  fun common_name(cert: Pointer[X509]): String ? =>
+  fun common_name(cert: UnsafePointer[X509]): String ? =>
     """
     Get the common name for the certificate. Raises an error if the common name
     contains any NULL bytes.
@@ -60,7 +60,7 @@ primitive X509
 
     common
 
-  fun all_names(cert: Pointer[X509]): Array[String] val =>
+  fun all_names(cert: UnsafePointer[X509]): Array[String] val =>
     """
     Returns an array of all names for the certificate. Any names containing
     NULL bytes are not included. This includes the common name and all subject
@@ -77,7 +77,7 @@ primitive X509
     end
 
     let stack =
-      @X509_get_ext_d2i(cert, I32(85), Pointer[U8], Pointer[U8])
+      @X509_get_ext_d2i(cert, I32(85), UnsafePointer[U8], UnsafePointer[U8])
 
     if stack.is_null() then
       return array

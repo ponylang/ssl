@@ -3,7 +3,7 @@ use "path:/opt/homebrew/opt/libressl/lib" if osx and arm
 use "lib:crypto"
 
 use @HMAC[Pointer[U8]](
-  evp_md: Pointer[_EVPMD],
+  evp_md: UnsafePointer[_EVPMD],
   key: Pointer[U8] tag, key_len: I32,
   data: Pointer[U8] tag, data_len: USize,
   md: Pointer[U8] tag, md_len: Pointer[U32])

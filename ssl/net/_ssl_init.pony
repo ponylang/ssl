@@ -3,11 +3,11 @@ use "path:/opt/homebrew/opt/libressl/lib" if osx and arm
 use "lib:ssl"
 use "lib:crypto"
 
-use @OPENSSL_init_ssl[I32](opts: U64, settings: Pointer[_OpenSslInitSettings])
+use @OPENSSL_init_ssl[I32](opts: U64, settings: UnsafePointer[_OpenSslInitSettings])
   if "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl"
-use @OPENSSL_INIT_new[Pointer[_OpenSslInitSettings]]()
+use @OPENSSL_INIT_new[UnsafePointer[_OpenSslInitSettings]]()
   if "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x"
-use @OPENSSL_INIT_free[None](settings: Pointer[_OpenSslInitSettings])
+use @OPENSSL_INIT_free[None](settings: UnsafePointer[_OpenSslInitSettings])
   if "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x"
 
 primitive _OpenSslInitSettings
@@ -30,7 +30,7 @@ primitive _SSLInit
         settings)
       @OPENSSL_INIT_free(settings)
     elseif "libressl" then
-      @OPENSSL_init_ssl(0, Pointer[_OpenSslInitSettings])
+      @OPENSSL_init_ssl(0, UnsafePointer[_OpenSslInitSettings])
     else
       compile_error "You must select an SSL version to use."
     end
