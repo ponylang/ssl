@@ -3,22 +3,22 @@ use "path:/opt/homebrew/opt/libressl/lib" if osx and arm
 use "lib:crypto"
 use "lib:bcrypt" if windows
 
-use @EVP_MD_CTX_new[Pointer[_EVPCTX]]() if "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl"
-use @EVP_DigestInit_ex[I32](ctx: Pointer[_EVPCTX] tag, t: Pointer[_EVPMD], impl: USize)
-use @EVP_DigestUpdate[I32](ctx: Pointer[_EVPCTX] tag, d: Pointer[U8] tag, cnt: USize)
-use @EVP_DigestFinal_ex[I32](ctx: Pointer[_EVPCTX] tag, md: Pointer[U8] tag, s: Pointer[USize])
-use @EVP_DigestFinalXOF[I32](ctx: Pointer[_EVPCTX] tag, md: Pointer[U8] tag, len: USize) if "openssl_3.0.x" or "openssl_4.0.x"
-use @EVP_MD_CTX_free[None](ctx: Pointer[_EVPCTX]) if "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl"
+use @EVP_MD_CTX_new[UnsafePointer[_EVPCTX]]() if "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl"
+use @EVP_DigestInit_ex[I32](ctx: UnsafePointer[_EVPCTX] tag, t: UnsafePointer[_EVPMD], impl: USize)
+use @EVP_DigestUpdate[I32](ctx: UnsafePointer[_EVPCTX] tag, d: Pointer[U8] tag, cnt: USize)
+use @EVP_DigestFinal_ex[I32](ctx: UnsafePointer[_EVPCTX] tag, md: Pointer[U8] tag, s: Pointer[USize])
+use @EVP_DigestFinalXOF[I32](ctx: UnsafePointer[_EVPCTX] tag, md: Pointer[U8] tag, len: USize) if "openssl_3.0.x" or "openssl_4.0.x"
+use @EVP_MD_CTX_free[None](ctx: UnsafePointer[_EVPCTX]) if "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl"
 
-use @EVP_md5[Pointer[_EVPMD]]()
-use @EVP_ripemd160[Pointer[_EVPMD]]()
-use @EVP_sha1[Pointer[_EVPMD]]()
-use @EVP_sha224[Pointer[_EVPMD]]()
-use @EVP_sha256[Pointer[_EVPMD]]()
-use @EVP_sha384[Pointer[_EVPMD]]()
-use @EVP_sha512[Pointer[_EVPMD]]()
-use @EVP_shake128[Pointer[_EVPMD]]()
-use @EVP_shake256[Pointer[_EVPMD]]()
+use @EVP_md5[UnsafePointer[_EVPMD]]()
+use @EVP_ripemd160[UnsafePointer[_EVPMD]]()
+use @EVP_sha1[UnsafePointer[_EVPMD]]()
+use @EVP_sha224[UnsafePointer[_EVPMD]]()
+use @EVP_sha256[UnsafePointer[_EVPMD]]()
+use @EVP_sha384[UnsafePointer[_EVPMD]]()
+use @EVP_sha512[UnsafePointer[_EVPMD]]()
+use @EVP_shake128[UnsafePointer[_EVPMD]]()
+use @EVP_shake256[UnsafePointer[_EVPMD]]()
 
 primitive _EVPMD
 primitive _EVPCTX
@@ -29,7 +29,7 @@ class Digest
   produce a final hash from the concatenation of the input with final().
   """
   let _digest_size: USize
-  let _ctx: Pointer[_EVPCTX]
+  let _ctx: UnsafePointer[_EVPCTX]
   let _variable_length: Bool
   var _hash: (Array[U8] val | None) = None
 

@@ -1,31 +1,32 @@
 use "net"
 
 use @SSL_ctrl[ILong](
-  ssl: Pointer[_SSL],
+  ssl: UnsafePointer[_SSL],
   op: I32,
   arg: ILong,
   parg: Pointer[None])
-use @SSL_new[Pointer[_SSL]](ctx: Pointer[_SSLContext] tag)
-use @SSL_free[None](ssl: Pointer[_SSL] tag)
-use @SSL_set_verify[None](ssl: Pointer[_SSL], mode: I32, cb: Pointer[U8])
-use @BIO_s_mem[Pointer[U8]]()
-use @BIO_new[Pointer[_BIO]](typ: Pointer[U8])
-use @SSL_set_bio[None](ssl: Pointer[_SSL], rbio: Pointer[_BIO] tag, wbio: Pointer[_BIO] tag)
-use @SSL_set_accept_state[None](ssl: Pointer[_SSL])
-use @SSL_set_connect_state[None](ssl: Pointer[_SSL])
-use @SSL_do_handshake[I32](ssl: Pointer[_SSL])
-use @SSL_get0_alpn_selected[None](ssl: Pointer[_SSL] tag, data: Pointer[Pointer[U8] iso],
+use @SSL_new[UnsafePointer[_SSL]](ctx: UnsafePointer[_SSLContext] tag)
+use @SSL_free[None](ssl: UnsafePointer[_SSL] tag)
+use @SSL_set_verify[None](ssl: UnsafePointer[_SSL], mode: I32,
+  cb: UnsafePointer[U8])
+use @BIO_s_mem[UnsafePointer[U8]]()
+use @BIO_new[UnsafePointer[_BIO]](typ: UnsafePointer[U8])
+use @SSL_set_bio[None](ssl: UnsafePointer[_SSL], rbio: UnsafePointer[_BIO] tag, wbio: UnsafePointer[_BIO] tag)
+use @SSL_set_accept_state[None](ssl: UnsafePointer[_SSL])
+use @SSL_set_connect_state[None](ssl: UnsafePointer[_SSL])
+use @SSL_do_handshake[I32](ssl: UnsafePointer[_SSL])
+use @SSL_get0_alpn_selected[None](ssl: UnsafePointer[_SSL] tag, data: Pointer[UnsafePointer[U8] iso],
   len: Pointer[U32]) if "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl"
-use @SSL_pending[I32](ssl: Pointer[_SSL])
-use @SSL_read[I32](ssl: Pointer[_SSL], buf: Pointer[U8] tag, len: U32)
-use @SSL_write[I32](ssl: Pointer[_SSL], buf: Pointer[U8] tag, len: U32)
-use @BIO_read[I32](bio: Pointer[_BIO] tag, buf: Pointer[U8] tag, len: U32)
-use @BIO_write[I32](bio: Pointer[_BIO] tag, buf: Pointer[U8] tag, len: U32)
-use @SSL_get_error[I32](ssl: Pointer[_SSL], ret: I32)
-use @BIO_ctrl_pending[USize](bio: Pointer[_BIO] tag)
-use @SSL_has_pending[I32](ssl: Pointer[_SSL]) if "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x"
-use @SSL_get_peer_certificate[Pointer[X509]](ssl: Pointer[_SSL]) if "openssl_1.1.x" or "libressl"
-use @SSL_get1_peer_certificate[Pointer[X509]](ssl: Pointer[_SSL]) if "openssl_3.0.x" or "openssl_4.0.x"
+use @SSL_pending[I32](ssl: UnsafePointer[_SSL])
+use @SSL_read[I32](ssl: UnsafePointer[_SSL], buf: Pointer[U8] tag, len: U32)
+use @SSL_write[I32](ssl: UnsafePointer[_SSL], buf: Pointer[U8] tag, len: U32)
+use @BIO_read[I32](bio: UnsafePointer[_BIO] tag, buf: Pointer[U8] tag, len: U32)
+use @BIO_write[I32](bio: UnsafePointer[_BIO] tag, buf: Pointer[U8] tag, len: U32)
+use @SSL_get_error[I32](ssl: UnsafePointer[_SSL], ret: I32)
+use @BIO_ctrl_pending[USize](bio: UnsafePointer[_BIO] tag)
+use @SSL_has_pending[I32](ssl: UnsafePointer[_SSL]) if "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x"
+use @SSL_get_peer_certificate[UnsafePointer[X509]](ssl: UnsafePointer[_SSL]) if "openssl_1.1.x" or "libressl"
+use @SSL_get1_peer_certificate[UnsafePointer[X509]](ssl: UnsafePointer[_SSL]) if "openssl_3.0.x" or "openssl_4.0.x"
 
 primitive _SSL
 primitive _BIO
@@ -44,14 +45,14 @@ class SSL
   """
   let _hostname: String
   let _verify: Bool
-  var _ssl: Pointer[_SSL]
-  var _input: Pointer[_BIO] tag
-  var _output: Pointer[_BIO] tag
+  var _ssl: UnsafePointer[_SSL]
+  var _input: UnsafePointer[_BIO] tag
+  var _output: UnsafePointer[_BIO] tag
   var _state: SSLState = SSLHandshake
   var _read_buf: Array[U8] iso = []
 
   new _create(
-    ctx: Pointer[_SSLContext] tag,
+    ctx: UnsafePointer[_SSLContext] tag,
     server: Bool,
     verify: Bool,
     hostname: String = "")
@@ -68,7 +69,7 @@ class SSL
     if _ssl.is_null() then error end
 
     let mode = if verify then I32(3) else I32(0) end
-    @SSL_set_verify(_ssl, mode, Pointer[U8])
+    @SSL_set_verify(_ssl, mode, UnsafePointer[U8])
 
     _input = @BIO_new(@BIO_s_mem())
     if _input.is_null() then error end
@@ -98,7 +99,7 @@ class SSL
     """
     Get the protocol identifier negotiated via ALPN
     """
-    var ptr: Pointer[U8] iso = recover Pointer[U8] end
+    var ptr: UnsafePointer[U8] iso = recover UnsafePointer[U8] end
     var len = U32(0)
     ifdef "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl" then
       @SSL_get0_alpn_selected(_ssl, addressof ptr, addressof len)
@@ -251,7 +252,7 @@ class SSL
     """
     if not _ssl.is_null() then
       @SSL_free(_ssl)
-      _ssl = Pointer[_SSL]
+      _ssl = UnsafePointer[_SSL]
     end
 
   fun _final() =>

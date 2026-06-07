@@ -4,39 +4,39 @@ use "lib:crypt32" if windows
 use "lib:cryptui" if windows
 use "lib:bcrypt" if windows
 
-use @memcpy[Pointer[U8]](dst: Pointer[None], src: Pointer[None], n: USize)
+use @memcpy[Pointer[U8]](dst: UnsafePointer[None], src: Pointer[None], n: USize)
 use @SSL_CTX_ctrl[ILong](
-  ctx: Pointer[_SSLContext] tag,
+  ctx: UnsafePointer[_SSLContext] tag,
   op: I32,
   arg: ULong,
   parg: Pointer[None])
-use @TLS_method[Pointer[None]]() if "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl"
-use @SSL_CTX_new[Pointer[_SSLContext]](method: Pointer[None])
-use @SSL_CTX_free[None](ctx: Pointer[_SSLContext] tag)
-use @SSL_CTX_clear_options[ULong](ctx: Pointer[_SSLContext] tag, opts: ULong) if "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x"
-use @SSL_CTX_set_options[ULong](ctx: Pointer[_SSLContext] tag, opts: ULong) if "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x"
-use @SSL_CTX_use_certificate_chain_file[I32](ctx: Pointer[_SSLContext] tag, file: Pointer[U8] tag)
-use @SSL_CTX_use_PrivateKey_file[I32](ctx: Pointer[_SSLContext] tag, file: Pointer[U8] tag, typ: I32)
-use @SSL_CTX_check_private_key[I32](ctx: Pointer[_SSLContext] tag)
-use @SSL_CTX_load_verify_locations[I32](ctx: Pointer[_SSLContext] tag, ca_file: Pointer[U8] tag,
+use @TLS_method[UnsafePointer[None]]() if "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl"
+use @SSL_CTX_new[UnsafePointer[_SSLContext]](method: UnsafePointer[None])
+use @SSL_CTX_free[None](ctx: UnsafePointer[_SSLContext] tag)
+use @SSL_CTX_clear_options[ULong](ctx: UnsafePointer[_SSLContext] tag, opts: ULong) if "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x"
+use @SSL_CTX_set_options[ULong](ctx: UnsafePointer[_SSLContext] tag, opts: ULong) if "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x"
+use @SSL_CTX_use_certificate_chain_file[I32](ctx: UnsafePointer[_SSLContext] tag, file: Pointer[U8] tag)
+use @SSL_CTX_use_PrivateKey_file[I32](ctx: UnsafePointer[_SSLContext] tag, file: Pointer[U8] tag, typ: I32)
+use @SSL_CTX_check_private_key[I32](ctx: UnsafePointer[_SSLContext] tag)
+use @SSL_CTX_load_verify_locations[I32](ctx: UnsafePointer[_SSLContext] tag, ca_file: Pointer[U8] tag,
   ca_path: Pointer[U8] tag)
 use @X509_STORE_new[Pointer[U8] tag]()
 use @CertOpenSystemStoreA[Pointer[U8] tag](prov: Pointer[U8] tag, protcol: Pointer[U8] tag)
   if windows
 use @CertEnumCertificatesInStore[NullablePointer[_CertContext]](cert_store: Pointer[U8] tag,
   prev_ctx: NullablePointer[_CertContext]) if windows
-use @d2i_X509[Pointer[X509] tag](val_out: Pointer[U8] tag, der_in: Pointer[Pointer[U8]],
+use @d2i_X509[UnsafePointer[X509] tag](val_out: Pointer[U8] tag, der_in: Pointer[Pointer[U8]],
   length: U32)
-use @X509_STORE_add_cert[U32](store: Pointer[U8] tag, x509: Pointer[X509] tag)
-use @X509_free[None](x509: Pointer[X509] tag)
-use @SSL_CTX_set_cert_store[None](ctx: Pointer[_SSLContext] tag, store: Pointer[U8] tag)
+use @X509_STORE_add_cert[U32](store: Pointer[U8] tag, x509: UnsafePointer[X509] tag)
+use @X509_free[None](x509: UnsafePointer[X509] tag)
+use @SSL_CTX_set_cert_store[None](ctx: UnsafePointer[_SSLContext] tag, store: Pointer[U8] tag)
 use @X509_STORE_free[None](store: Pointer[U8] tag)
 use @CertCloseStore[Bool](store: Pointer[U8] tag, flags: U32) if windows
-use @SSL_CTX_set_cipher_list[I32](ctx: Pointer[_SSLContext] tag, control: Pointer[U8] tag)
-use @SSL_CTX_set_verify_depth[None](ctx: Pointer[_SSLContext] tag, depth: U32)
-use @SSL_CTX_set_alpn_select_cb[None](ctx: Pointer[_SSLContext] tag, cb: _ALPNSelectCallback,
+use @SSL_CTX_set_cipher_list[I32](ctx: UnsafePointer[_SSLContext] tag, control: Pointer[U8] tag)
+use @SSL_CTX_set_verify_depth[None](ctx: UnsafePointer[_SSLContext] tag, depth: U32)
+use @SSL_CTX_set_alpn_select_cb[None](ctx: UnsafePointer[_SSLContext] tag, cb: _ALPNSelectCallback,
    resolver: ALPNProtocolResolver) if "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl"
-use @SSL_CTX_set_alpn_protos[I32](ctx: Pointer[_SSLContext] tag, protos: Pointer[U8] tag,
+use @SSL_CTX_set_alpn_protos[I32](ctx: UnsafePointer[_SSLContext] tag, protos: Pointer[U8] tag,
   protos_len: USize) if "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl"
 
 primitive _SSLContext
@@ -60,7 +60,7 @@ class val SSLContext
   """
   An SSL context is used to create SSL sessions.
   """
-  var _ctx: Pointer[_SSLContext] tag
+  var _ctx: UnsafePointer[_SSLContext] tag
   var _client_verify: Bool = true
   var _server_verify: Bool = false
 
@@ -324,10 +324,10 @@ class val SSLContext
     false
 
   fun @_alpn_select_cb(
-    ssl: Pointer[_SSL] tag,
-    out: Pointer[Pointer[U8] tag] tag,
-    outlen: Pointer[U8] tag,
-    inptr: Pointer[U8] box,
+    ssl: UnsafePointer[_SSL] tag,
+    out: UnsafePointer[Pointer[U8] tag] tag,
+    outlen: UnsafePointer[U8] tag,
+    inptr: UnsafePointer[U8] box,
     inlen: U32,
     resolver: ALPNProtocolResolver box)
     : I32
@@ -400,7 +400,7 @@ class val SSLContext
     """
     if not _ctx.is_null() then
       @SSL_CTX_free(_ctx)
-      _ctx = Pointer[_SSLContext]
+      _ctx = UnsafePointer[_SSLContext]
     end
 
   fun _final() =>

@@ -5,7 +5,7 @@ use "lib:crypto"
 use @PKCS5_PBKDF2_HMAC[I32](
   pass: Pointer[U8] tag, passlen: I32,
   salt: Pointer[U8] tag, saltlen: I32, iter: I32,
-  digest: Pointer[_EVPMD],
+  digest: UnsafePointer[_EVPMD],
   keylen: I32, out: Pointer[U8] tag) if "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl"
 
 primitive Pbkdf2Sha256
