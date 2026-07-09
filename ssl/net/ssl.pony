@@ -31,11 +31,40 @@ primitive _SSL
 primitive _BIO
 
 primitive SSLHandshake
-primitive SSLAuthFail
-primitive SSLReady
-primitive SSLError
+  """
+  The session is still handshaking.
+  """
 
-type SSLState is (SSLHandshake | SSLAuthFail | SSLReady | SSLError)
+primitive SSLAuthFail
+  """
+  The peer's certificate could not be verified.
+  """
+
+primitive SSLReady
+  """
+  The handshake is complete. Application data can be sent and received.
+  """
+
+primitive SSLError
+  """
+  The session failed.
+  """
+
+primitive SSLDisposed
+  """
+  The session has been disposed. Nothing more comes out of it: `read` returns
+  `None`, `can_send` returns `false`, `alpn_selected` returns `None`, `receive`
+  and `write` do nothing, and `send` raises an error.
+  """
+
+type SSLState is
+  (SSLHandshake | SSLAuthFail | SSLReady | SSLError | SSLDisposed)
+  """
+  The state of an SSL session. A session starts in `SSLHandshake` and reaches
+  `SSLReady`, `SSLAuthFail`, or `SSLError` from there. A ready session can
+  still fail into `SSLError` later. Disposing a session puts it in
+  `SSLDisposed` from any state, and it stays there.
+  """
 
 class SSL
   """
@@ -45,6 +74,8 @@ class SSL
   let _hostname: String
   let _verify: Bool
   var _ssl: Pointer[_SSL]
+  // `dispose` frees these two along with `_ssl` and nulls all three. Check
+  // `_ssl.is_null()` before touching either of them.
   var _input: Pointer[_BIO] tag
   var _output: Pointer[_BIO] tag
   var _state: SSLState = SSLHandshake
@@ -96,8 +127,11 @@ class SSL
 
   fun box alpn_selected(): (ALPNProtocolName | None) =>
     """
-    Get the protocol identifier negotiated via ALPN
+    Get the protocol identifier negotiated via ALPN. Returns None if the
+    session has been disposed.
     """
+    if _ssl.is_null() then return None end
+
     var ptr: Pointer[U8] iso = recover Pointer[U8] end
     var len = U32(0)
     ifdef "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl" then
@@ -121,8 +155,11 @@ class SSL
     """
     Returns unencrypted bytes to be passed to the application. If `expect` is
     non-zero, the number of bytes returned will be exactly `expect`. If no data
-    (or less than `expect` bytes) is available, this returns None.
+    (or less than `expect` bytes) is available, this returns None. A disposed
+    session returns None.
     """
+    if _ssl.is_null() then return None end
+
     let offset = _read_buf.size()
 
     var len = if expect > 0 then
@@ -199,9 +236,11 @@ class SSL
 
   fun ref write(data: ByteSeq) ? =>
     """
-    When application data is sent, add it to the SSL session. Raises an error
-    if the handshake is not complete.
+    When application data is sent, add it to the SSL session. Does nothing if
+    the session has been disposed. Raises an error if the handshake is not
+    complete.
     """
+    if _ssl.is_null() then return end
     if _state isnt SSLReady then error end
 
     if data.size() > 0 then
@@ -210,8 +249,11 @@ class SSL
 
   fun ref receive(data: ByteSeq) =>
     """
-    When data is received, add it to the SSL session.
+    When data is received, add it to the SSL session. Does nothing if the
+    session has been disposed.
     """
+    if _ssl.is_null() then return end
+
     @BIO_write(_input, data.cpointer(), data.size().u32())
 
     if _state is SSLHandshake then
@@ -230,14 +272,19 @@ class SSL
   fun ref can_send(): Bool =>
     """
     Returns true if there are encrypted bytes to be passed to the destination.
+    Returns false if the session has been disposed.
     """
+    if _ssl.is_null() then return false end
+
     @BIO_ctrl_pending(_output) > 0
 
   fun ref send(): Array[U8] iso^ ? =>
     """
     Returns encrypted bytes to be passed to the destination. Raises an error
-    if no data is available.
+    if no data is available. A disposed session has no data.
     """
+    if _ssl.is_null() then error end
+
     let len = @BIO_ctrl_pending(_output)
     if len == 0 then error end
 
@@ -247,12 +294,22 @@ class SSL
 
   fun ref dispose() =>
     """
-    Dispose of the session.
+    Dispose of the session. `state` returns `SSLDisposed` afterwards, whatever
+    state the session was in before.
     """
     if not _ssl.is_null() then
+      // `_create` handed both BIOs to the session with `SSL_set_bio`, so
+      // `SSL_free` frees all three. Nulling `_ssl` is what keeps the other
+      // methods away from the freed BIOs, because they all check it first.
+      // Null the BIOs as well, so a method that ever forgets that check finds
+      // a null pointer instead of freed memory.
       @SSL_free(_ssl)
       _ssl = Pointer[_SSL]
+      _input = Pointer[_BIO]
+      _output = Pointer[_BIO]
     end
+
+    _state = SSLDisposed
 
   fun _final() =>
     """

@@ -6,12 +6,14 @@ All notable changes to this project will be documented in this file. This projec
 
 ### Fixed
 
+- Fix crash when using a disposed SSL session ([PR #68](https://github.com/ponylang/ssl/pull/68))
 
 ### Added
 
 
 ### Changed
 
+- Add SSLDisposed to SSLState ([PR #68](https://github.com/ponylang/ssl/pull/68))
 
 ## [2.1.0] - 2026-04-20
 

@@ -168,6 +168,11 @@ class SSLConnection is TCPConnectionNotify
       end
 
       return true
+    | SSLDisposed =>
+      // `closed` disposes the session after its last `_poll`, so this arm is
+      // not reached while the connection is open. Once the session is gone
+      // there is nothing to read and nothing to send.
+      return false
     end
 
     var continue_reading: Bool = true
