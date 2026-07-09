@@ -1116,8 +1116,8 @@ class \nodoc\ iso _TestSSLHandshakeInMemory is UnitTest
 class \nodoc\ iso _TestSSLDisposeBeforeHandshake is UnitTest
   """
   A session disposed before its handshake finishes is inert too, and `state`
-  keeps returning `SSLHandshake`. This is the case from issue #66: a fresh
-  client session, disposed, then read.
+  reports `SSLDisposed` rather than the `SSLHandshake` it was in. This is the
+  case from issue #66: a fresh client session, disposed, then read.
 
   A fresh client session has a ClientHello waiting to go out, so `can_send`
   returning `false` after the dispose is the disposed check and not an empty
@@ -1144,8 +1144,8 @@ class \nodoc\ iso _TestSSLDisposeBeforeHandshake is UnitTest
     client.dispose()
 
     h.assert_true(
-      client.state() is SSLHandshake,
-      "dispose() should not change the session state")
+      client.state() is SSLDisposed,
+      "dispose() from SSLHandshake should leave the session SSLDisposed")
     h.assert_true(
       client.read() is None,
       "read() on a disposed session should return None")
@@ -1370,12 +1370,12 @@ class \nodoc\ iso _TestSSLSendAfterDispose is UnitTest
 
 class \nodoc\ iso _TestSSLWriteAfterDispose is UnitTest
   """
-  `write` on a disposed session raises an error. Before the fix it returned as
-  though the data had been written, and nothing was written.
+  `write` on a disposed session does nothing and does not raise. Being disposed
+  is not an error, and `write`'s only error means the handshake is not
+  complete, which is not what happened here.
 
-  The session is `SSLReady` before the dispose and stays `SSLReady` after it,
-  so the error can only come from the disposed check and not from the
-  handshake check.
+  The session reaches `SSLReady` first, so the dispose is the only reason
+  `write` could have to stop, and `state` reports `SSLDisposed` afterwards.
   """
   fun name(): String => "net/ssl/SSL.write/after_dispose"
 
@@ -1395,13 +1395,18 @@ class \nodoc\ iso _TestSSLWriteAfterDispose is UnitTest
     client.dispose()
 
     h.assert_true(
-      client.state() is SSLReady,
-      "dispose() should not change the session state")
+      client.state() is SSLDisposed,
+      "dispose() from SSLReady should leave the session SSLDisposed")
 
     try
       client.write("data")?
-      h.fail("write() on a disposed session should raise an error")
+    else
+      h.fail("write() on a disposed session should not raise an error")
     end
+
+    h.assert_false(
+      client.can_send(),
+      "write() on a disposed session should not queue anything to send")
 
     server.dispose()
 
