@@ -6,7 +6,7 @@ use @X509_get_subject_name[Pointer[_X509Name]](cert: Pointer[X509])
 use @X509_NAME_get_text_by_NID[I32](name: Pointer[_X509Name], nid: I32,
   buf: Pointer[U8] tag, len: I32)
 use @X509_get_ext_d2i[Pointer[_GeneralNameStack]](cert: Pointer[X509],
-  nid: I32, crit: Pointer[U8], idx: Pointer[U8])
+  nid: I32, crit: Pointer[I32], idx: Pointer[I32])
 use @OPENSSL_sk_pop[Pointer[_GeneralName]](stack: Pointer[_GeneralNameStack])
   if "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x"
 use @sk_pop[Pointer[_GeneralName]](stack: Pointer[_GeneralNameStack])
@@ -77,7 +77,7 @@ primitive X509
     end
 
     let stack =
-      @X509_get_ext_d2i(cert, I32(85), Pointer[U8], Pointer[U8])
+      @X509_get_ext_d2i(cert, I32(85), Pointer[I32], Pointer[I32])
 
     if stack.is_null() then
       return array

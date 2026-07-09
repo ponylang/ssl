@@ -7,7 +7,7 @@ use @SSL_ctrl[ILong](
   parg: Pointer[None])
 use @SSL_new[Pointer[_SSL]](ctx: Pointer[_SSLContext] tag)
 use @SSL_free[None](ssl: Pointer[_SSL] tag)
-use @SSL_set_verify[None](ssl: Pointer[_SSL], mode: I32, cb: Pointer[U8])
+use @SSL_set_verify[None](ssl: Pointer[_SSL], mode: I32, cb: Pointer[None])
 use @BIO_s_mem[Pointer[U8]]()
 use @BIO_new[Pointer[_BIO]](typ: Pointer[U8])
 use @BIO_free[I32](bio: Pointer[_BIO] tag)
@@ -18,10 +18,10 @@ use @SSL_do_handshake[I32](ssl: Pointer[_SSL])
 use @SSL_get0_alpn_selected[None](ssl: Pointer[_SSL] tag, data: Pointer[Pointer[U8] iso],
   len: Pointer[U32]) if "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl"
 use @SSL_pending[I32](ssl: Pointer[_SSL])
-use @SSL_read[I32](ssl: Pointer[_SSL], buf: Pointer[U8] tag, len: U32)
-use @SSL_write[I32](ssl: Pointer[_SSL], buf: Pointer[U8] tag, len: U32)
-use @BIO_read[I32](bio: Pointer[_BIO] tag, buf: Pointer[U8] tag, len: U32)
-use @BIO_write[I32](bio: Pointer[_BIO] tag, buf: Pointer[U8] tag, len: U32)
+use @SSL_read[I32](ssl: Pointer[_SSL], buf: Pointer[U8] tag, len: I32)
+use @SSL_write[I32](ssl: Pointer[_SSL], buf: Pointer[U8] tag, len: I32)
+use @BIO_read[I32](bio: Pointer[_BIO] tag, buf: Pointer[U8] tag, len: I32)
+use @BIO_write[I32](bio: Pointer[_BIO] tag, buf: Pointer[U8] tag, len: I32)
 use @SSL_get_error[I32](ssl: Pointer[_SSL], ret: I32)
 use @BIO_ctrl_pending[USize](bio: Pointer[_BIO] tag)
 use @SSL_has_pending[I32](ssl: Pointer[_SSL]) if "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x"
@@ -98,7 +98,7 @@ class SSL
     if _ssl.is_null() then error end
 
     let mode = if verify then I32(3) else I32(0) end
-    @SSL_set_verify(_ssl, mode, Pointer[U8])
+    @SSL_set_verify(_ssl, mode, Pointer[None])
 
     _input = @BIO_new(@BIO_s_mem())
     if _input.is_null() then error end
@@ -188,11 +188,11 @@ class SSL
       end
 
       _read_buf.undefined(offset + len)
-      @SSL_read(_ssl, _read_buf.cpointer(offset), len.u32())
+      @SSL_read(_ssl, _read_buf.cpointer(offset), len.i32())
     else
       _read_buf.undefined(offset + len)
       let r =
-        @SSL_read(_ssl, _read_buf.cpointer(offset), len.u32())
+        @SSL_read(_ssl, _read_buf.cpointer(offset), len.i32())
 
       if r <= 0 then
         match @SSL_get_error(_ssl, r)
@@ -249,7 +249,7 @@ class SSL
     if _state isnt SSLReady then error end
 
     if data.size() > 0 then
-      @SSL_write(_ssl, data.cpointer(), data.size().u32())
+      @SSL_write(_ssl, data.cpointer(), data.size().i32())
     end
 
   fun ref receive(data: ByteSeq) =>
@@ -259,7 +259,7 @@ class SSL
     """
     if _ssl.is_null() then return end
 
-    @BIO_write(_input, data.cpointer(), data.size().u32())
+    @BIO_write(_input, data.cpointer(), data.size().i32())
 
     if _state is SSLHandshake then
       let r = @SSL_do_handshake(_ssl)
@@ -294,7 +294,7 @@ class SSL
     if len == 0 then error end
 
     let buf = recover Array[U8] .> undefined(len) end
-    @BIO_read(_output, buf.cpointer(), buf.size().u32())
+    @BIO_read(_output, buf.cpointer(), buf.size().i32())
     buf
 
   fun ref dispose() =>

@@ -80,7 +80,38 @@ else
 end
 ```
 
+**One symbol whose C signature changes by version** needs two `use` statements, and the second guard must exclude the first. ponyc resolves an FFI call by enumerating every combination of the defines named in the guards, not just the one the build passes, and nothing tells it the `ssl=` defines are mutually exclusive. Overlapping guards give "Multiple possible declarations for FFI call":
+```pony
+use @SSL_CTX_set_options[U64](ctx: Pointer[_SSLContext] tag, opts: U64) if "openssl_3.0.x" or "openssl_4.0.x"
+use @SSL_CTX_set_options[ULong](ctx: Pointer[_SSLContext] tag, opts: ULong) if "openssl_1.1.x" and not ("openssl_3.0.x" or "openssl_4.0.x")
+```
+`libressl` appears in neither guard because LibreSSL reaches these options through `SSL_CTX_ctrl` instead — see LibreSSL API Divergences above.
+
+The call site needs an `ifdef` split too. Pony has no implicit numeric conversion, so one call expression cannot satisfy both parameter types.
+
+Adding a new SSL define means adding it to the exclusion list. Forgetting is safe: the enumeration finds the overlap and fails the build on every backend, not just the new one.
+
 Every ifdef chain must end with `compile_error` to catch missing defines at compile time.
+
+## FFI Type Conventions
+
+Declare the Pony type that corresponds to the C type in the header, not one that happens to be the same width on the platforms CI builds:
+
+| C type | Pony type |
+|---|---|
+| `int` / `unsigned int` | `I32` / `U32` |
+| `long` / `unsigned long` | `ILong` / `ULong` |
+| `size_t` | `USize` |
+| `uint64_t` | `U64` |
+| pointer to an opaque C struct | `Pointer[_Name]`, declaring a phantom primitive for it |
+| `void *`, or a pointer only ever passed as null | `Pointer[None]` |
+| pointer to bytes | `Pointer[U8]` |
+
+`ILong`/`ULong` track C's `long`: 32 bits on Windows and on 32-bit targets such as `arm32`, 64 bits on 64-bit Unix-like targets. `USize` tracks `size_t`, which is pointer-width. Neither is a stand-in for `uint64_t`. Reaching for `ULong` because it is 64 bits on the platform in front of you turns a correct call into a wrong one everywhere else — `SSL_CTX_set_options` takes a `uint64_t` in OpenSSL 3.x, and a `ULong` declaration passes 32 bits on every 32-bit build.
+
+A `Pointer[X]`'s element type never reaches the ABI, so `Pointer[USize]` where C says `unsigned int *` cannot break a call that passes null. It breaks the caller who later passes `addressof` a real `USize`: C writes four of the eight bytes and the rest keep whatever was in the slot, so the caller reads a garbage value.
+
+Public Pony signatures do not have to match the C types. Convert at the FFI call instead — `SSLContext.set_verify_depth` takes a `U32` and passes `depth.i32()`. Where the public type admits values the C type cannot hold, converting silently wraps: a depth above `2^31` arrives as a negative `int`. Validate at the public boundary or say so in the docstring; do not let the conversion be the whole answer.
 
 ## Key Files
 
