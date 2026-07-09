@@ -54,6 +54,12 @@ LibreSSL's API is mostly OpenSSL 1.1.x compatible, with five differences that re
 4. **`SSL_get_peer_certificate`** — LibreSSL uses the pre-3.0.x name (not `SSL_get1_peer_certificate`)
 5. **`OPENSSL_INIT_new`/`OPENSSL_INIT_free`** — not available in LibreSSL. Init uses `OPENSSL_init_ssl` directly with no settings object
 
+## Dispose Conventions
+
+`dispose()` frees the OpenSSL handle and nulls the pointer field, so any later call would hand OpenSSL a null. Most of the C functions dereference it without checking, and the ones that don't vary by backend — `SSL_CTX_ctrl` returns 0 for a null context on OpenSSL but dereferences it on LibreSSL. Check `is_null()` before calling into OpenSSL, and don't count on a backend being forgiving.
+
+Pony registers a `_final` when it allocates the object, not when the constructor returns, so `_final` runs even on an object whose constructor raised. A pointer field that `_final` frees needs a null default at its declaration, or it frees whatever was left in the recycled heap slot.
+
 ## ifdef Conventions
 
 Version-specific code uses two patterns:
