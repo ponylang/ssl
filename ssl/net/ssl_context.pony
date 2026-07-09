@@ -8,13 +8,15 @@ use @memcpy[Pointer[U8]](dst: Pointer[None], src: Pointer[None], n: USize)
 use @SSL_CTX_ctrl[ILong](
   ctx: Pointer[_SSLContext] tag,
   op: I32,
-  arg: ULong,
+  arg: ILong,
   parg: Pointer[None])
 use @TLS_method[Pointer[None]]() if "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl"
 use @SSL_CTX_new[Pointer[_SSLContext]](method: Pointer[None])
 use @SSL_CTX_free[None](ctx: Pointer[_SSLContext] tag)
-use @SSL_CTX_clear_options[ULong](ctx: Pointer[_SSLContext] tag, opts: ULong) if "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x"
-use @SSL_CTX_set_options[ULong](ctx: Pointer[_SSLContext] tag, opts: ULong) if "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x"
+use @SSL_CTX_clear_options[U64](ctx: Pointer[_SSLContext] tag, opts: U64) if "openssl_3.0.x" or "openssl_4.0.x"
+use @SSL_CTX_clear_options[ULong](ctx: Pointer[_SSLContext] tag, opts: ULong) if "openssl_1.1.x" and not ("openssl_3.0.x" or "openssl_4.0.x")
+use @SSL_CTX_set_options[U64](ctx: Pointer[_SSLContext] tag, opts: U64) if "openssl_3.0.x" or "openssl_4.0.x"
+use @SSL_CTX_set_options[ULong](ctx: Pointer[_SSLContext] tag, opts: ULong) if "openssl_1.1.x" and not ("openssl_3.0.x" or "openssl_4.0.x")
 use @SSL_CTX_use_certificate_chain_file[I32](ctx: Pointer[_SSLContext] tag, file: Pointer[U8] tag)
 use @SSL_CTX_use_PrivateKey_file[I32](ctx: Pointer[_SSLContext] tag, file: Pointer[U8] tag, typ: I32)
 use @SSL_CTX_check_private_key[I32](ctx: Pointer[_SSLContext] tag)
@@ -25,19 +27,19 @@ use @CertOpenSystemStoreA[Pointer[U8] tag](prov: Pointer[U8] tag, protcol: Point
   if windows
 use @CertEnumCertificatesInStore[NullablePointer[_CertContext]](cert_store: Pointer[U8] tag,
   prev_ctx: NullablePointer[_CertContext]) if windows
-use @d2i_X509[Pointer[X509] tag](val_out: Pointer[U8] tag, der_in: Pointer[Pointer[U8]],
-  length: U32)
-use @X509_STORE_add_cert[U32](store: Pointer[U8] tag, x509: Pointer[X509] tag)
+use @d2i_X509[Pointer[X509] tag](val_out: Pointer[Pointer[X509]], der_in: Pointer[Pointer[U8]],
+  length: ILong)
+use @X509_STORE_add_cert[I32](store: Pointer[U8] tag, x509: Pointer[X509] tag)
 use @X509_free[None](x509: Pointer[X509] tag)
 use @SSL_CTX_set_cert_store[None](ctx: Pointer[_SSLContext] tag, store: Pointer[U8] tag)
 use @X509_STORE_free[None](store: Pointer[U8] tag)
-use @CertCloseStore[Bool](store: Pointer[U8] tag, flags: U32) if windows
+use @CertCloseStore[I32](store: Pointer[U8] tag, flags: U32) if windows
 use @SSL_CTX_set_cipher_list[I32](ctx: Pointer[_SSLContext] tag, control: Pointer[U8] tag)
-use @SSL_CTX_set_verify_depth[None](ctx: Pointer[_SSLContext] tag, depth: U32)
+use @SSL_CTX_set_verify_depth[None](ctx: Pointer[_SSLContext] tag, depth: I32)
 use @SSL_CTX_set_alpn_select_cb[None](ctx: Pointer[_SSLContext] tag, cb: _ALPNSelectCallback,
    resolver: ALPNProtocolResolver) if "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl"
 use @SSL_CTX_set_alpn_protos[I32](ctx: Pointer[_SSLContext] tag, protos: Pointer[U8] tag,
-  protos_len: USize) if "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl"
+  protos_len: U32) if "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl"
 
 primitive _SSLContext
 
@@ -50,10 +52,10 @@ primitive _SslCtrlClearOptions fun val apply(): I32 => 77
 // Also, in the version strings the "v" becomes "V" and
 // the underscore "_" becomes "u". So SSL_OP_NO_TLSv1_2
 // _SslOpNo_TlsV1u2.
-primitive _SslOpNoTlsV1    fun val apply(): ULong => 0x04000000
-primitive _SslOpNoTlsV1u2  fun val apply(): ULong => 0x08000000
-primitive _SslOpNoTlsV1u1  fun val apply(): ULong => 0x10000000
-primitive _SslOpNoTlsV1u3  fun val apply(): ULong => 0x20000000
+primitive _SslOpNoTlsV1    fun val apply(): U64 => 0x04000000
+primitive _SslOpNoTlsV1u2  fun val apply(): U64 => 0x08000000
+primitive _SslOpNoTlsV1u1  fun val apply(): U64 => 0x10000000
+primitive _SslOpNoTlsV1u3  fun val apply(): U64 => 0x20000000
 
 
 class val SSLContext
@@ -81,20 +83,24 @@ class val SSLContext
       compile_error "You must select an SSL version to use."
     end
 
-  fun _set_options(opts: ULong) =>
-    ifdef "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" then
+  fun _set_options(opts: U64) =>
+    ifdef "openssl_3.0.x" or "openssl_4.0.x" then
       @SSL_CTX_set_options(_ctx, opts)
+    elseif "openssl_1.1.x" then
+      @SSL_CTX_set_options(_ctx, opts.ulong())
     elseif "libressl" then
-      @SSL_CTX_ctrl(_ctx, _SslCtrlSetOptions(), opts, Pointer[None])
+      @SSL_CTX_ctrl(_ctx, _SslCtrlSetOptions(), opts.ilong(), Pointer[None])
     else
       compile_error "You must select an SSL version to use."
     end
 
-  fun _clear_options(opts: ULong) =>
-    ifdef "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" then
+  fun _clear_options(opts: U64) =>
+    ifdef "openssl_3.0.x" or "openssl_4.0.x" then
       @SSL_CTX_clear_options(_ctx, opts)
+    elseif "openssl_1.1.x" then
+      @SSL_CTX_clear_options(_ctx, opts.ulong())
     elseif "libressl" then
-      @SSL_CTX_ctrl(_ctx, _SslCtrlClearOptions(), opts, Pointer[None])
+      @SSL_CTX_ctrl(_ctx, _SslCtrlClearOptions(), opts.ilong(), Pointer[None])
     else
       compile_error "You must select an SSL version to use."
     end
@@ -191,8 +197,9 @@ class val SSLContext
 
         while not pContext.is_none() do
           let cert_context = pContext()?
-          let x509 = @d2i_X509(Pointer[U8], addressof cert_context.pbCertEncoded,
-            cert_context.cbCertEncoded)
+          let x509 = @d2i_X509(Pointer[Pointer[X509]],
+            addressof cert_context.pbCertEncoded,
+            cert_context.cbCertEncoded.ilong())
           if not x509.is_null() then
             let result = @X509_STORE_add_cert(x509_store, x509)
             @X509_free(x509)
@@ -237,9 +244,13 @@ class val SSLContext
     """
     Set the verify depth. Defaults to 6. Does nothing if the context has been
     disposed.
+
+    A depth of 2^31 or more arrives at the SSL library as a negative depth.
+    What each backend does with one is undocumented, so do not use a depth that
+    large.
     """
     if not _ctx.is_null() then
-      @SSL_CTX_set_verify_depth(_ctx, depth)
+      @SSL_CTX_set_verify_depth(_ctx, depth.i32())
     end
 
   fun ref set_min_proto_version(version: ULong) ? =>
@@ -255,7 +266,8 @@ class val SSLContext
     if _ctx.is_null() then error end
 
     let result =
-      @SSL_CTX_ctrl(_ctx, _SslCtrlSetMinProtoVersion(), version, Pointer[None])
+      @SSL_CTX_ctrl(
+        _ctx, _SslCtrlSetMinProtoVersion(), version.ilong(), Pointer[None])
     if result == 0 then
       error
     end
@@ -287,7 +299,8 @@ class val SSLContext
     if _ctx.is_null() then error end
 
     let result =
-      @SSL_CTX_ctrl(_ctx, _SslCtrlSetMaxProtoVersion(), version, Pointer[None])
+      @SSL_CTX_ctrl(
+        _ctx, _SslCtrlSetMaxProtoVersion(), version.ilong(), Pointer[None])
     if result == 0 then
       error
     end
@@ -336,7 +349,7 @@ class val SSLContext
         let proto_list = _ALPNProtocolList.from_array(protocols)?
         let result =
           @SSL_CTX_set_alpn_protos(
-            _ctx, proto_list.cpointer(), proto_list.size())
+            _ctx, proto_list.cpointer(), proto_list.size().u32())
         return result == 0
       end
     else
@@ -360,15 +373,16 @@ class val SSLContext
 
       match \exhaustive\ resolver.resolve(proto_arr)
       | let matched: String =>
-      var size = matched.size()
-      if (size > 0) and (size <= 255) then
-        var ptr = matched.cpointer()
-        @memcpy(out, addressof ptr, size.bitwidth() / 8)
-        @memcpy(outlen, addressof size, USize(1))
-        _ALPNMatchResultCode.ok()
-      else
-        _ALPNMatchResultCode.fatal()
-      end
+        let size = matched.size()
+        if (size > 0) and (size <= 255) then
+          var ptr = matched.cpointer()
+          var len = size.u8()
+          @memcpy(out, addressof ptr, USize(0).bytewidth())
+          @memcpy(outlen, addressof len, USize(1))
+          _ALPNMatchResultCode.ok()
+        else
+          _ALPNMatchResultCode.fatal()
+        end
       | ALPNNoAck => _ALPNMatchResultCode.no_ack()
       | ALPNWarning => _ALPNMatchResultCode.warning()
       | ALPNFatal => _ALPNMatchResultCode.fatal()

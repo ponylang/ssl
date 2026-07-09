@@ -35,6 +35,7 @@ actor \nodoc\ Main is TestList
     test(_TestSSLContextSetCiphersAfterDispose)
     test(_TestSSLContextSetVerifyDepthAfterDispose)
     test(_TestSSLContextAllowTlsAfterDispose)
+    test(_TestSSLContextAllowTlsV1u2)
     test(_TestSSLContextClientAfterDispose)
     test(_TestSSLContextServerAfterDispose)
     test(_TestTCPSSLWritev)
@@ -1793,12 +1794,15 @@ class \nodoc\ iso _TestSSLContextSetVerifyDepthAfterDispose is UnitTest
   dereferences the null context on every backend.
 
   There is nothing to observe beyond the call returning, so the context is
-  checked for inertness afterwards.
+  checked for inertness afterwards. The call before the dispose is the only one
+  in the suite that carries a depth into `SSL_CTX_set_verify_depth`.
   """
   fun name(): String => "net/ssl/SSLContext.set_verify_depth/after_dispose"
 
   fun apply(h: TestHelper) =>
     let ctx = SSLContext
+
+    ctx.set_verify_depth(4)
 
     ctx.dispose()
     ctx.set_verify_depth(4)
@@ -1841,6 +1845,112 @@ class \nodoc\ iso _TestSSLContextAllowTlsAfterDispose is UnitTest
     h.assert_false(
       ctx.alpn_set_client_protocols(["h2"]),
       "the context should still be disposed")
+
+class \nodoc\ iso _TestSSLContextAllowTlsV1u2 is UnitTest
+  """
+  `allow_tls_v1_2` takes effect on a live context.
+
+  The context permits TLS 1.2 and nothing else, so disabling TLS 1.2 leaves the
+  handshake no version to negotiate. Re-enabling it clears the option and the
+  handshake completes again.
+
+  The first assertion is the control. Without it, a handshake that failed for
+  an unrelated reason would look like the option taking effect.
+
+  The context is live, so `SSLContext._set_options` and `_clear_options` reach
+  the SSL library rather than returning at the disposed check.
+  """
+  fun name(): String => "net/ssl/SSLContext.allow_tls_v1_2"
+
+  fun apply(h: TestHelper) =>
+    h.assert_true(
+      _handshakes(h, false, false),
+      "a context pinned to TLS 1.2 should complete a handshake")
+
+    h.assert_false(
+      _handshakes(h, true, false),
+      "disabling TLS 1.2 should leave no version to negotiate")
+
+    h.assert_true(
+      _handshakes(h, true, true),
+      "re-enabling TLS 1.2 should let the handshake complete again")
+
+  fun _handshakes(h: TestHelper, disable: Bool, reenable: Bool): Bool =>
+    """
+    Whether a client and a server session from a TLS 1.2 only context complete
+    a handshake, having disabled and then re-enabled TLS 1.2 as asked.
+    """
+    let auth = FileAuth(h.env.root)
+    let sslctx =
+      try
+        recover val
+          let ctx = SSLContext
+            .> set_authority(FilePath(auth, "assets/cert.pem"))?
+            .> set_cert(
+                FilePath(auth, "assets/cert.pem"),
+                FilePath(auth, "assets/key.pem"))?
+            .> set_client_verify(false)
+            .> set_server_verify(false)
+            .> set_min_proto_version(Tls1u2Version())?
+            .> set_max_proto_version(Tls1u2Version())?
+          if disable then ctx.allow_tls_v1_2(false) end
+          if reenable then ctx.allow_tls_v1_2(true) end
+          ctx
+        end
+      else
+        h.fail("ssl context setup failed")
+        return false
+      end
+
+    let client: SSL =
+      try
+        sslctx.client()?
+      else
+        h.fail("failed getting ssl client session")
+        return false
+      end
+
+    let server: SSL =
+      try
+        sslctx.server()?
+      else
+        client.dispose()
+        h.fail("failed getting ssl server session")
+        return false
+      end
+
+    let ready = _drive(client, server)
+    client.dispose()
+    server.dispose()
+    ready
+
+  fun _drive(client: SSL, server: SSL): Bool =>
+    """
+    Whether both sides reach `SSLReady` when each side's outgoing bytes are
+    handed straight to the other.
+
+    A handshake with no protocol version left to negotiate fails rather than
+    stalls, so the loop ends on its own. The round cap is a backstop against a
+    session that never settles, not the expected way out.
+    """
+    let max_rounds: USize = 20
+    var rounds: USize = 0
+
+    while
+      (client.state() is SSLHandshake) or (server.state() is SSLHandshake)
+    do
+      if rounds == max_rounds then return false end
+      rounds = rounds + 1
+
+      try
+        _TestSSLTransfer(client, server)?
+        _TestSSLTransfer(server, client)?
+      else
+        return false
+      end
+    end
+
+    (client.state() is SSLReady) and (server.state() is SSLReady)
 
 class \nodoc\ iso _TestSSLContextClientAfterDispose is UnitTest
   """

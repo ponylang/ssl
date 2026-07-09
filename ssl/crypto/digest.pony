@@ -4,9 +4,9 @@ use "lib:crypto"
 use "lib:bcrypt" if windows
 
 use @EVP_MD_CTX_new[Pointer[_EVPCTX]]() if "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl"
-use @EVP_DigestInit_ex[I32](ctx: Pointer[_EVPCTX] tag, t: Pointer[_EVPMD], impl: USize)
+use @EVP_DigestInit_ex[I32](ctx: Pointer[_EVPCTX] tag, t: Pointer[_EVPMD], impl: Pointer[None])
 use @EVP_DigestUpdate[I32](ctx: Pointer[_EVPCTX] tag, d: Pointer[U8] tag, cnt: USize)
-use @EVP_DigestFinal_ex[I32](ctx: Pointer[_EVPCTX] tag, md: Pointer[U8] tag, s: Pointer[USize])
+use @EVP_DigestFinal_ex[I32](ctx: Pointer[_EVPCTX] tag, md: Pointer[U8] tag, s: Pointer[U32])
 use @EVP_DigestFinalXOF[I32](ctx: Pointer[_EVPCTX] tag, md: Pointer[U8] tag, len: USize) if "openssl_3.0.x" or "openssl_4.0.x"
 use @EVP_MD_CTX_free[None](ctx: Pointer[_EVPCTX]) if "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl"
 
@@ -44,7 +44,7 @@ class Digest
     else
       compile_error "You must select an SSL version to use."
     end
-    @EVP_DigestInit_ex(_ctx, @EVP_md5(), USize(0))
+    @EVP_DigestInit_ex(_ctx, @EVP_md5(), Pointer[None])
 
   new ripemd160() =>
     """
@@ -57,7 +57,7 @@ class Digest
     else
       compile_error "You must select an SSL version to use."
     end
-    @EVP_DigestInit_ex(_ctx, @EVP_ripemd160(), USize(0))
+    @EVP_DigestInit_ex(_ctx, @EVP_ripemd160(), Pointer[None])
 
   new sha1() =>
     """
@@ -70,11 +70,11 @@ class Digest
     else
       compile_error "You must select an SSL version to use."
     end
-    @EVP_DigestInit_ex(_ctx, @EVP_sha1(), USize(0))
+    @EVP_DigestInit_ex(_ctx, @EVP_sha1(), Pointer[None])
 
   new sha224() =>
     """
-    Use the SHA256 algorithm to calculate the hash.
+    Use the SHA224 algorithm to calculate the hash.
     """
     _variable_length = false
     _digest_size = 28
@@ -83,7 +83,7 @@ class Digest
     else
       compile_error "You must select an SSL version to use."
     end
-    @EVP_DigestInit_ex(_ctx, @EVP_sha224(), USize(0))
+    @EVP_DigestInit_ex(_ctx, @EVP_sha224(), Pointer[None])
 
   new sha256() =>
     """
@@ -96,7 +96,7 @@ class Digest
     else
       compile_error "You must select an SSL version to use."
     end
-    @EVP_DigestInit_ex(_ctx, @EVP_sha256(), USize(0))
+    @EVP_DigestInit_ex(_ctx, @EVP_sha256(), Pointer[None])
 
   new sha384() =>
     """
@@ -109,7 +109,7 @@ class Digest
     else
       compile_error "You must select an SSL version to use."
     end
-    @EVP_DigestInit_ex(_ctx, @EVP_sha384(), USize(0))
+    @EVP_DigestInit_ex(_ctx, @EVP_sha384(), Pointer[None])
 
   new sha512() =>
     """
@@ -122,7 +122,7 @@ class Digest
     else
       compile_error "You must select an SSL version to use."
     end
-    @EVP_DigestInit_ex(_ctx, @EVP_sha512(), USize(0))
+    @EVP_DigestInit_ex(_ctx, @EVP_sha512(), Pointer[None])
 
   new shake128(size': USize = 16) =>
     """
@@ -142,7 +142,7 @@ class Digest
         _digest_size = 16
       end
       _ctx = @EVP_MD_CTX_new()
-      @EVP_DigestInit_ex(_ctx, @EVP_shake128(), USize(0))
+      @EVP_DigestInit_ex(_ctx, @EVP_shake128(), Pointer[None])
     else
       compile_error "shake128 is only supported with OpenSSL 1.1.x, 3.0.x, or 4.0.x"
     end
@@ -165,7 +165,7 @@ class Digest
         _digest_size = 32
       end
       _ctx = @EVP_MD_CTX_new()
-      @EVP_DigestInit_ex(_ctx, @EVP_shake256(), USize(0))
+      @EVP_DigestInit_ex(_ctx, @EVP_shake256(), Pointer[None])
     else
       compile_error "shake256 is only supported with OpenSSL 1.1.x, 3.0.x, or 4.0.x"
     end
@@ -194,10 +194,10 @@ class Digest
         if _variable_length then
           @EVP_DigestFinalXOF(_ctx, digest.cpointer(), size)
         else
-          @EVP_DigestFinal_ex(_ctx, digest.cpointer(), Pointer[USize])
+          @EVP_DigestFinal_ex(_ctx, digest.cpointer(), Pointer[U32])
         end
       elseif "openssl_1.1.x" or "libressl" then
-        @EVP_DigestFinal_ex(_ctx, digest.cpointer(), Pointer[USize])
+        @EVP_DigestFinal_ex(_ctx, digest.cpointer(), Pointer[U32])
       else
         compile_error "You must select an SSL version to use."
       end
