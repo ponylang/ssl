@@ -8,6 +8,7 @@ All notable changes to this project will be documented in this file. This projec
 
 - Fix crash when using a disposed SSL session ([PR #68](https://github.com/ponylang/ssl/pull/68))
 - Fix crashes when using a disposed SSL context ([PR #73](https://github.com/ponylang/ssl/pull/73))
+- Fix allow_tls_v1, allow_tls_v1_1 and allow_tls_v1_2 on 32-bit platforms ([PR #79](https://github.com/ponylang/ssl/pull/79))
 
 ### Added
 
