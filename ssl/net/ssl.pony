@@ -96,8 +96,11 @@ class SSL
 
   fun box alpn_selected(): (ALPNProtocolName | None) =>
     """
-    Get the protocol identifier negotiated via ALPN
+    Get the protocol identifier negotiated via ALPN. Returns None if the
+    session has been disposed.
     """
+    if _is_disposed() then return None end
+
     var ptr: Pointer[U8] iso = recover Pointer[U8] end
     var len = U32(0)
     ifdef "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl" then
@@ -113,7 +116,8 @@ class SSL
 
   fun state(): SSLState =>
     """
-    Returns the SSL session state.
+    Returns the SSL session state. A disposed session keeps returning the state
+    it was in when it was disposed; see `dispose`.
     """
     _state
 
@@ -121,8 +125,11 @@ class SSL
     """
     Returns unencrypted bytes to be passed to the application. If `expect` is
     non-zero, the number of bytes returned will be exactly `expect`. If no data
-    (or less than `expect` bytes) is available, this returns None.
+    (or less than `expect` bytes) is available, this returns None. A disposed
+    session returns None.
     """
+    if _is_disposed() then return None end
+
     let offset = _read_buf.size()
 
     var len = if expect > 0 then
@@ -200,9 +207,9 @@ class SSL
   fun ref write(data: ByteSeq) ? =>
     """
     When application data is sent, add it to the SSL session. Raises an error
-    if the handshake is not complete.
+    if the handshake is not complete or the session has been disposed.
     """
-    if _state isnt SSLReady then error end
+    if _is_disposed() or (_state isnt SSLReady) then error end
 
     if data.size() > 0 then
       @SSL_write(_ssl, data.cpointer(), data.size().u32())
@@ -210,8 +217,11 @@ class SSL
 
   fun ref receive(data: ByteSeq) =>
     """
-    When data is received, add it to the SSL session.
+    When data is received, add it to the SSL session. Does nothing if the
+    session has been disposed.
     """
+    if _is_disposed() then return end
+
     @BIO_write(_input, data.cpointer(), data.size().u32())
 
     if _state is SSLHandshake then
@@ -230,14 +240,19 @@ class SSL
   fun ref can_send(): Bool =>
     """
     Returns true if there are encrypted bytes to be passed to the destination.
+    Returns false if the session has been disposed.
     """
+    if _is_disposed() then return false end
+
     @BIO_ctrl_pending(_output) > 0
 
   fun ref send(): Array[U8] iso^ ? =>
     """
     Returns encrypted bytes to be passed to the destination. Raises an error
-    if no data is available.
+    if no data is available or the session has been disposed.
     """
+    if _is_disposed() then error end
+
     let len = @BIO_ctrl_pending(_output)
     if len == 0 then error end
 
@@ -248,10 +263,20 @@ class SSL
   fun ref dispose() =>
     """
     Dispose of the session.
+
+    Afterwards, `read` returns `None`, `receive` does nothing, `can_send`
+    returns `false`, `alpn_selected` returns `None`, and `write` and `send`
+    raise an error. `state` keeps returning the state the session was in when
+    it was disposed.
     """
     if not _ssl.is_null() then
+      // `_create` handed both BIOs to the session with `SSL_set_bio`, so
+      // `SSL_free` frees them along with the session. Null all three fields
+      // rather than leave two of them pointing at freed memory.
       @SSL_free(_ssl)
       _ssl = Pointer[_SSL]
+      _input = Pointer[_BIO]
+      _output = Pointer[_BIO]
     end
 
   fun _final() =>
@@ -261,6 +286,13 @@ class SSL
     if not _ssl.is_null() then
       @SSL_free(_ssl)
     end
+
+  fun _is_disposed(): Bool =>
+    """
+    True once `dispose` has run. `dispose` nulls `_ssl`, `_input` and `_output`
+    together, so a null `_ssl` means both BIOs have been freed as well.
+    """
+    _ssl.is_null()
 
   fun ref _verify_hostname() =>
     """

@@ -12,6 +12,16 @@ actor \nodoc\ Main is TestList
     test(_TestALPNProtocolListEncoding)
     test(_TestALPNProtocolListDecode)
     test(_TestALPNStandardProtocolResolver)
+    test(_TestSSLHandshakeInMemory)
+    test(_TestSSLDisposeBeforeHandshake)
+    test(_TestSSLDisposeTwice)
+    test(_TestSSLReadAfterDispose)
+    test(_TestSSLReadAfterDisposeWithBufferedFrame)
+    test(_TestSSLReceiveAfterDispose)
+    test(_TestSSLCanSendAfterDispose)
+    test(_TestSSLSendAfterDispose)
+    test(_TestSSLWriteAfterDispose)
+    test(_TestSSLALPNSelectedAfterDispose)
     test(_TestTCPSSLWritev)
     test(_TestTCPSSLExpect)
     test(_TestTCPSSLMute)
@@ -973,6 +983,489 @@ primitive \nodoc\ _TestSSLContext
       end
 
     (consume ssl_client, consume ssl_server)
+
+primitive \nodoc\ _TestSSLTransfer
+  fun val apply(sender: SSL, receiver: SSL) ? =>
+    """
+    Hand every encrypted byte the sender has ready over to the receiver, the
+    way a transport would.
+    """
+    while sender.can_send() do
+      receiver.receive(sender.send()?)
+    end
+
+primitive \nodoc\ _TestSSLSessionPair
+  fun val apply(h: TestHelper): (SSL, SSL) ? =>
+    """
+    A handshaken client and server session from the standard test context,
+    with no transport between them.
+    """
+    (let client, let server) = fresh(h)?
+    _handshake(h, client, server)?
+    (client, server)
+
+  fun val fresh(h: TestHelper): (SSL, SSL) ? =>
+    """
+    A client and a server session from the standard test context, before any
+    handshake. Both are in `SSLHandshake`.
+    """
+    (let client_session, let server_session) = _TestSSLContext(h)?
+    let client: SSL = consume client_session
+    let server: SSL = consume server_session
+    (client, server)
+
+  fun val from_context(h: TestHelper, sslctx: SSLContext val): (SSL, SSL) ? =>
+    """
+    A handshaken client and server session from `sslctx`, with no transport
+    between them.
+    """
+    let client: SSL =
+      try
+        sslctx.client()?
+      else
+        h.fail("failed getting ssl client session")
+        error
+      end
+    let server: SSL =
+      try
+        sslctx.server()?
+      else
+        h.fail("failed getting ssl server session")
+        error
+      end
+    _handshake(h, client, server)?
+    (client, server)
+
+  fun val _handshake(h: TestHelper, client: SSL, server: SSL) ? =>
+    """
+    Drive a handshake to completion by handing each side's outgoing bytes
+    straight to the other. Reports the reason and raises an error if the
+    handshake does not finish.
+    """
+    // How many rounds a handshake takes depends on the TLS version and the
+    // backend, so this is a backstop against a session that never settles,
+    // not a count anything should rely on.
+    let max_rounds: USize = 20
+    var rounds: USize = 0
+
+    while
+      (client.state() is SSLHandshake) or (server.state() is SSLHandshake)
+    do
+      if rounds == max_rounds then
+        h.fail(
+          "in memory SSL handshake did not finish in "
+            + max_rounds.string() + " rounds")
+        error
+      end
+      rounds = rounds + 1
+
+      _TestSSLTransfer(client, server)?
+      _TestSSLTransfer(server, client)?
+    end
+
+    if (client.state() isnt SSLReady) or (server.state() isnt SSLReady) then
+      h.fail("in memory SSL handshake did not reach SSLReady")
+      error
+    end
+
+class \nodoc\ iso _TestSSLHandshakeInMemory is UnitTest
+  """
+  Two SSL sessions can complete a handshake with no transport between them by
+  handing each side's outgoing bytes straight to the other, and application
+  data written by one can be read by the other.
+
+  The `after_dispose` tests all start from a handshaken pair. This test
+  verifies that the pair really handshakes and really moves data, so when one
+  of those tests fails, the session under test is at fault and not the
+  harness.
+  """
+  fun name(): String => "net/ssl/SSL/handshake_in_memory"
+
+  fun apply(h: TestHelper) =>
+    (let client, let server) =
+      try
+        _TestSSLSessionPair(h)?
+      else
+        h.fail("could not establish an SSL session pair")
+        return
+      end
+
+    h.assert_true(client.state() is SSLReady, "client is not SSLReady")
+    h.assert_true(server.state() is SSLReady, "server is not SSLReady")
+
+    try
+      client.write("hello")?
+      _TestSSLTransfer(client, server)?
+    else
+      h.fail("client could not send application data")
+      client.dispose()
+      server.dispose()
+      return
+    end
+
+    match server.read()
+    | let data: Array[U8] iso =>
+      h.assert_eq[String]("hello", String.from_array(consume data))
+    | None =>
+      h.fail("server read no application data")
+    end
+
+    client.dispose()
+    server.dispose()
+
+class \nodoc\ iso _TestSSLDisposeBeforeHandshake is UnitTest
+  """
+  A session disposed before its handshake finishes is inert too, and `state`
+  keeps returning `SSLHandshake`. This is the case from issue #66: a fresh
+  client session, disposed, then read.
+
+  A fresh client session has a ClientHello waiting to go out, so `can_send`
+  returning `false` after the dispose is the disposed check and not an empty
+  BIO.
+  """
+  fun name(): String => "net/ssl/SSL.dispose/before_handshake"
+
+  fun apply(h: TestHelper) =>
+    (let client, let server) =
+      try
+        _TestSSLSessionPair.fresh(h)?
+      else
+        h.fail("could not create an SSL session pair")
+        return
+      end
+
+    h.assert_true(
+      client.state() is SSLHandshake,
+      "a fresh client session should be in SSLHandshake")
+    h.assert_true(
+      client.can_send(),
+      "a fresh client session should have a ClientHello to send")
+
+    client.dispose()
+
+    h.assert_true(
+      client.state() is SSLHandshake,
+      "dispose() should not change the session state")
+    h.assert_true(
+      client.read() is None,
+      "read() on a disposed session should return None")
+    h.assert_false(
+      client.can_send(),
+      "can_send() on a disposed session should return false")
+
+    client.receive("bytes that will never be decrypted")
+
+    try
+      client.send()?
+      h.fail("send() on a disposed session should raise an error")
+    end
+
+    server.dispose()
+
+class \nodoc\ iso _TestSSLDisposeTwice is UnitTest
+  """
+  Disposing a session twice does not free the session or its BIOs twice, and
+  the session is still inert afterwards.
+  """
+  fun name(): String => "net/ssl/SSL.dispose/twice"
+
+  fun apply(h: TestHelper) =>
+    (let client, let server) =
+      try
+        _TestSSLSessionPair(h)?
+      else
+        h.fail("could not establish an SSL session pair")
+        return
+      end
+
+    client.dispose()
+    client.dispose()
+
+    h.assert_true(
+      client.read() is None,
+      "read() on a disposed session should return None")
+    h.assert_false(
+      client.can_send(),
+      "can_send() on a disposed session should return false")
+
+    server.dispose()
+
+class \nodoc\ iso _TestSSLReadAfterDispose is UnitTest
+  """
+  `read` on a disposed session returns `None` instead of passing a null
+  `SSL*` to `SSL_pending`.
+  """
+  fun name(): String => "net/ssl/SSL.read/after_dispose"
+
+  fun apply(h: TestHelper) =>
+    (let client, let server) =
+      try
+        _TestSSLSessionPair(h)?
+      else
+        h.fail("could not establish an SSL session pair")
+        return
+      end
+
+    client.dispose()
+
+    h.assert_true(
+      client.read() is None,
+      "read() on a disposed session should return None")
+    h.assert_true(
+      client.read(4) is None,
+      "read(4) on a disposed session should return None")
+
+    server.dispose()
+
+class \nodoc\ iso _TestSSLReadAfterDisposeWithBufferedFrame is UnitTest
+  """
+  A session holding decrypted bytes from an incomplete `expect` frame returns
+  `None` from `read` once it is disposed, rather than handing those bytes
+  back.
+
+  This is the one post-dispose read that did not crash before the fix. With
+  at least `expect` bytes already buffered, `read` returns them without
+  touching the freed session.
+  """
+  fun name(): String => "net/ssl/SSL.read/after_dispose_with_buffered_frame"
+
+  fun apply(h: TestHelper) =>
+    (let client, let server) =
+      try
+        _TestSSLSessionPair(h)?
+      else
+        h.fail("could not establish an SSL session pair")
+        return
+      end
+
+    try
+      client.write("ab")?
+      _TestSSLTransfer(client, server)?
+    else
+      h.fail("client could not send application data")
+      client.dispose()
+      server.dispose()
+      return
+    end
+
+    h.assert_true(
+      server.read(4) is None,
+      "two bytes should not satisfy read(4)")
+
+    server.dispose()
+
+    h.assert_true(
+      server.read(2) is None,
+      "read(2) on a disposed session should return None, even with two bytes "
+        + "already buffered")
+
+    client.dispose()
+
+class \nodoc\ iso _TestSSLReceiveAfterDispose is UnitTest
+  """
+  `receive` on a disposed session does nothing instead of writing into a freed
+  BIO. There is nothing to observe afterwards beyond the session still reading
+  as empty.
+  """
+  fun name(): String => "net/ssl/SSL.receive/after_dispose"
+
+  fun apply(h: TestHelper) =>
+    (let client, let server) =
+      try
+        _TestSSLSessionPair(h)?
+      else
+        h.fail("could not establish an SSL session pair")
+        return
+      end
+
+    server.dispose()
+    server.receive("bytes that will never be decrypted")
+
+    h.assert_true(
+      server.read() is None,
+      "a disposed session has nothing to read")
+
+    client.dispose()
+
+class \nodoc\ iso _TestSSLCanSendAfterDispose is UnitTest
+  """
+  `can_send` on a disposed session returns `false` instead of reading a freed
+  BIO.
+
+  The session has encrypted bytes waiting when it is disposed, so a `false`
+  here is the disposed check and not an empty BIO. A live session with nothing
+  to send returns `false` too.
+  """
+  fun name(): String => "net/ssl/SSL.can_send/after_dispose"
+
+  fun apply(h: TestHelper) =>
+    (let client, let server) =
+      try
+        _TestSSLSessionPair(h)?
+      else
+        h.fail("could not establish an SSL session pair")
+        return
+      end
+
+    try
+      client.write("data")?
+    else
+      h.fail("client could not write application data")
+      client.dispose()
+      server.dispose()
+      return
+    end
+
+    h.assert_true(
+      client.can_send(),
+      "a session that has just written should have bytes to send")
+
+    client.dispose()
+
+    h.assert_false(
+      client.can_send(),
+      "can_send() on a disposed session should return false")
+
+    server.dispose()
+
+class \nodoc\ iso _TestSSLSendAfterDispose is UnitTest
+  """
+  `send` on a disposed session raises an error instead of reading a freed BIO.
+
+  The session has encrypted bytes waiting when it is disposed, so the error
+  here is the disposed check and not the empty BIO check.
+  """
+  fun name(): String => "net/ssl/SSL.send/after_dispose"
+
+  fun apply(h: TestHelper) =>
+    (let client, let server) =
+      try
+        _TestSSLSessionPair(h)?
+      else
+        h.fail("could not establish an SSL session pair")
+        return
+      end
+
+    try
+      client.write("data")?
+    else
+      h.fail("client could not write application data")
+      client.dispose()
+      server.dispose()
+      return
+    end
+
+    h.assert_true(
+      client.can_send(),
+      "a session that has just written should have bytes to send")
+
+    client.dispose()
+
+    try
+      client.send()?
+      h.fail("send() on a disposed session should raise an error")
+    end
+
+    server.dispose()
+
+class \nodoc\ iso _TestSSLWriteAfterDispose is UnitTest
+  """
+  `write` on a disposed session raises an error. Before the fix it returned as
+  though the data had been written, and nothing was written.
+
+  The session is `SSLReady` before the dispose and stays `SSLReady` after it,
+  so the error can only come from the disposed check and not from the
+  handshake check.
+  """
+  fun name(): String => "net/ssl/SSL.write/after_dispose"
+
+  fun apply(h: TestHelper) =>
+    (let client, let server) =
+      try
+        _TestSSLSessionPair(h)?
+      else
+        h.fail("could not establish an SSL session pair")
+        return
+      end
+
+    h.assert_true(
+      client.state() is SSLReady,
+      "client should be SSLReady after the handshake")
+
+    client.dispose()
+
+    h.assert_true(
+      client.state() is SSLReady,
+      "dispose() should not change the session state")
+
+    try
+      client.write("data")?
+      h.fail("write() on a disposed session should raise an error")
+    end
+
+    server.dispose()
+
+class \nodoc\ iso _TestSSLALPNSelectedAfterDispose is UnitTest
+  """
+  `alpn_selected` on a disposed session returns `None` rather than the
+  protocol the session negotiated. The session negotiates one before it is
+  disposed, so the `None` afterwards is the disposed check and not the absence
+  of ALPN.
+
+  This test passes with and without the disposed check on OpenSSL, whose
+  `SSL_get0_alpn_selected` checks its own `SSL*` for null. We do not rely on
+  that, and LibreSSL has not been checked, so the disposed check is what keeps
+  the return value from depending on the backend.
+  """
+  fun name(): String => "net/ssl/SSL.alpn_selected/after_dispose"
+
+  fun apply(h: TestHelper) =>
+    let auth = FileAuth(h.env.root)
+
+    // The resolver is handed to OpenSSL as callback data, which the Pony GC
+    // cannot see. Hold it here so it outlives the handshake.
+    let resolver = ALPNStandardProtocolResolver(["h2"])
+
+    let sslctx =
+      try
+        recover val
+          SSLContext
+            .> set_authority(FilePath(auth, "assets/cert.pem"))?
+            .> set_cert(
+                FilePath(auth, "assets/cert.pem"),
+                FilePath(auth, "assets/key.pem"))?
+            .> set_client_verify(false)
+            .> set_server_verify(false)
+            .> alpn_set_client_protocols(["h2"])
+            .> alpn_set_resolver(resolver)
+        end
+      else
+        h.fail("ssl context setup failed")
+        return
+      end
+
+    (let client, let server) =
+      try
+        _TestSSLSessionPair.from_context(h, sslctx)?
+      else
+        h.fail("could not establish an SSL session pair")
+        return
+      end
+
+    match client.alpn_selected()
+    | let protocol: ALPNProtocolName =>
+      h.assert_eq[String]("h2", protocol)
+    | None =>
+      h.fail("the client did not negotiate an ALPN protocol")
+    end
+
+    client.dispose()
+
+    h.assert_true(
+      client.alpn_selected() is None,
+      "alpn_selected() on a disposed session should return None")
+
+    server.dispose()
 
 class \nodoc\ iso _TestALPNProtocolListRoundTrip is Property1[Array[String]]
   fun name(): String =>
