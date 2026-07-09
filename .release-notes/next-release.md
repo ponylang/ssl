@@ -52,3 +52,44 @@ This affected 32-bit builds using OpenSSL 3.x or 4.x. 64-bit builds, LibreSSL bu
 
 These methods now change only the protocol version they name.
 
+## Fix ALPN resolver being collected while still in use
+
+Setting an ALPN protocol resolver on an `SSLContext` and then dropping your own reference to it could crash a server. `SSLContext.alpn_set_resolver` hands the resolver to OpenSSL, which keeps a raw pointer to it and calls it during every incoming connection's handshake. Nothing on the Pony side kept the resolver alive, so the garbage collector was free to collect it while OpenSSL still held the pointer. A peer opening a TLS connection then drove the handshake into freed memory.
+
+The resolver now stays alive on its own. The context keeps it alive, and every session made from the context keeps the context alive, so the resolver lives for as long as any session that can use it. There is nothing you have to hold onto by hand.
+
+## Require a val resolver for alpn_set_resolver
+
+`SSLContext.alpn_set_resolver` now takes an `ALPNProtocolResolver val` where it took an `ALPNProtocolResolver box` before, and the `ALPNProtocolResolver` interface is now `val`. An `SSLContext` is shared across actors, so the resolver can run on any of them, and it has to be immutable and safe to share.
+
+`ALPNStandardProtocolResolver` is already `val`, so code using it needs no change. Code that passes a resolver of its own class must pass it as `val`:
+
+```pony
+// Before
+ctx.alpn_set_resolver(MyResolver)
+
+// After
+ctx.alpn_set_resolver(recover val MyResolver end)
+```
+
+## Require a val context for SSLContext.client and server
+
+`SSLContext.client` and `SSLContext.server` now need a `val` context where they worked on a mutable one before. Making a session is what keeps the context, and the ALPN resolver it installed with OpenSSL, alive, and a session can only hold the context if it is `val`.
+
+You configure a context and then make sessions from it, so freeze it to `val` once configuration is done:
+
+```pony
+// Before
+let ctx = SSLContext
+ctx.set_authority(auth_file)?
+let session = ctx.client(hostname)?
+
+// After
+let ctx =
+  recover val
+    SSLContext .> set_authority(auth_file)?
+  end
+let session = ctx.client(hostname)?
+```
+
+`SSLContext.server` changes the same way. Configuration methods like `set_authority` still need a mutable context, so do all configuration before freezing. A `val` context cannot be disposed, so a context you make sessions from is freed when the garbage collector collects it rather than when you call `dispose`.

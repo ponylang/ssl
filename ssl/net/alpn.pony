@@ -15,12 +15,16 @@ type _ALPNSelectCallback is @{(
    Pointer[U8] tag,
    Pointer[U8] box,
    U32,
-   ALPNProtocolResolver box)
+   ALPNProtocolResolver val)
   : I32}
 
-interface box ALPNProtocolResolver
+interface val ALPNProtocolResolver
   """
-  Controls the protocol name to be chosen for incomming SSLConnections using the ALPN extension.
+  Controls the protocol name to be chosen for incoming SSL connections using the
+  ALPN extension.
+
+  An implementation is `val`: a context shares the resolver across actors and
+  runs it from any of them, so it cannot depend on mutable state.
   """
   fun box resolve(advertised: Array[ALPNProtocolName] val): ALPNMatchResult
 

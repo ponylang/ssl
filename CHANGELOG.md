@@ -9,6 +9,7 @@ All notable changes to this project will be documented in this file. This projec
 - Fix crash when using a disposed SSL session ([PR #68](https://github.com/ponylang/ssl/pull/68))
 - Fix crashes when using a disposed SSL context ([PR #73](https://github.com/ponylang/ssl/pull/73))
 - Fix allow_tls_v1, allow_tls_v1_1 and allow_tls_v1_2 on 32-bit platforms ([PR #79](https://github.com/ponylang/ssl/pull/79))
+- Fix ALPN resolver being collected while still in use ([PR #81](https://github.com/ponylang/ssl/pull/81))
 
 ### Added
 
@@ -16,6 +17,8 @@ All notable changes to this project will be documented in this file. This projec
 ### Changed
 
 - Add SSLDisposed to SSLState ([PR #68](https://github.com/ponylang/ssl/pull/68))
+- Require a val resolver for alpn_set_resolver ([PR #81](https://github.com/ponylang/ssl/pull/81))
+- Require a val context for SSLContext.client and server ([PR #81](https://github.com/ponylang/ssl/pull/81))
 
 ## [2.1.0] - 2026-04-20
 

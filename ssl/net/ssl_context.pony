@@ -37,7 +37,7 @@ use @CertCloseStore[I32](store: Pointer[U8] tag, flags: U32) if windows
 use @SSL_CTX_set_cipher_list[I32](ctx: Pointer[_SSLContext] tag, control: Pointer[U8] tag)
 use @SSL_CTX_set_verify_depth[None](ctx: Pointer[_SSLContext] tag, depth: I32)
 use @SSL_CTX_set_alpn_select_cb[None](ctx: Pointer[_SSLContext] tag, cb: _ALPNSelectCallback,
-   resolver: ALPNProtocolResolver) if "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl"
+   resolver: ALPNProtocolResolver val) if "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl"
 use @SSL_CTX_set_alpn_protos[I32](ctx: Pointer[_SSLContext] tag, protos: Pointer[U8] tag,
   protos_len: U32) if "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl"
 
@@ -65,6 +65,9 @@ class val SSLContext
   var _ctx: Pointer[_SSLContext] tag
   var _client_verify: Bool = true
   var _server_verify: Bool = false
+  // OpenSSL holds the raw pointer to this, and the Pony garbage collector
+  // cannot see that. The field is what keeps the resolver alive.
+  var _alpn_resolver: (ALPNProtocolResolver val | None) = None
 
   new create() =>
     """
@@ -105,24 +108,34 @@ class val SSLContext
       compile_error "You must select an SSL version to use."
     end
 
-  fun client(hostname: String = ""): SSL iso^ ? =>
+  fun _ssl_ctx(): Pointer[_SSLContext] tag =>
+    """
+    The raw `SSL_CTX` handle, for a session being created from this context.
+    """
+    _ctx
+
+  fun val client(hostname: String = ""): SSL iso^ ? =>
     """
     Create a client-side SSL session. If a hostname is supplied, the server
     side certificate must be valid for that hostname. Raises an error if the
     context has been disposed.
-    """
-    let ctx = _ctx
-    let verify = _client_verify
-    recover SSL._create(ctx, false, verify, hostname)? end
 
-  fun server(): SSL iso^ ? =>
+    The session holds the context, so the context lives for as long as the
+    session can handshake.
+    """
+    let verify = _client_verify
+    recover SSL._create(this, false, verify, hostname)? end
+
+  fun val server(): SSL iso^ ? =>
     """
     Create a server-side SSL session. Raises an error if the context has been
     disposed.
+
+    The session holds the context, so the context and the ALPN resolver it
+    installed with OpenSSL live for as long as the session can handshake.
     """
-    let ctx = _ctx
     let verify = _server_verify
-    recover SSL._create(ctx, true, verify)? end
+    recover SSL._create(this, true, verify)? end
 
   fun ref set_cert(cert: FilePath, key: FilePath) ? =>
     """
@@ -319,15 +332,24 @@ class val SSLContext
 
     @SSL_CTX_ctrl(_ctx, _SslCtrlGetMaxProtoVersion(), 0, Pointer[None])
 
-  fun ref alpn_set_resolver(resolver: ALPNProtocolResolver box): Bool =>
+  fun ref alpn_set_resolver(resolver: ALPNProtocolResolver val): Bool =>
     """
-    Use `resolver` to choose the protocol to be selected for incomming connections.
+    Use `resolver` to choose the protocol to be selected for incoming
+    connections.
+
+    OpenSSL holds a raw pointer to `resolver` that the Pony garbage collector
+    cannot see. The context keeps `resolver` alive, and every session made from
+    the context keeps the context alive, so `resolver` lives for as long as any
+    session that can reach it. The resolver has to be set before any session is
+    created, which the capabilities enforce: this method needs a mutable
+    context, and `client` and `server` need one that has been made immutable.
 
     Returns true on success. Returns false if the context has been disposed.
     """
     if _ctx.is_null() then return false end
 
     ifdef "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl" then
+      _alpn_resolver = resolver
       @SSL_CTX_set_alpn_select_cb(
         _ctx, addressof SSLContext._alpn_select_cb, resolver)
       return true
@@ -364,7 +386,7 @@ class val SSLContext
     outlen: Pointer[U8] tag,
     inptr: Pointer[U8] box,
     inlen: U32,
-    resolver: ALPNProtocolResolver box)
+    resolver: ALPNProtocolResolver val)
     : I32
   =>
     let proto_arr_str = String.copy_cpointer(inptr, USize.from[U32](inlen))

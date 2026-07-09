@@ -74,6 +74,11 @@ class SSL
   """
   let _hostname: String
   let _verify: Bool
+  // Nothing reads this. `SSL_new` takes a reference on the `SSL_CTX`, so the
+  // `SSL_CTX` outlives an `SSLContext` the caller drops while this session is
+  // alive. Holding the context here keeps it, and the ALPN resolver it handed
+  // to OpenSSL, alive for as long as the session can drive a handshake.
+  let _context: SSLContext
   var _ssl: Pointer[_SSL] = Pointer[_SSL]
   var _input: Pointer[_BIO] tag = Pointer[_BIO]
   var _output: Pointer[_BIO] tag = Pointer[_BIO]
@@ -81,16 +86,20 @@ class SSL
   var _read_buf: Array[U8] iso = []
 
   new _create(
-    ctx: Pointer[_SSLContext] tag,
+    context: SSLContext val,
     server: Bool,
     verify: Bool,
     hostname: String = "")
     ?
   =>
     """
-    Create a client or server SSL session from a context.
+    Create a client or server SSL session from a context. The session holds the
+    context, so the context and the ALPN resolver it installed with OpenSSL stay
+    alive for as long as the session can handshake.
     """
+    let ctx = context._ssl_ctx()
     if ctx.is_null() then error end
+    _context = context
     _hostname = hostname
     _verify = verify
 
