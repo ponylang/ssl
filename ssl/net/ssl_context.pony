@@ -71,7 +71,8 @@ class val SSLContext
     ifdef "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl" then
       _ctx = @SSL_CTX_new(@TLS_method())
 
-      // Allow only newer ciphers.
+      // Allow only newer ciphers. These raise only if `SSL_CTX_new` failed,
+      // and a null context can never make a session, so the swallow is safe.
       try
         set_min_proto_version(Tls1u2Version())?
         set_max_proto_version(SslAutoVersion())?
@@ -101,7 +102,8 @@ class val SSLContext
   fun client(hostname: String = ""): SSL iso^ ? =>
     """
     Create a client-side SSL session. If a hostname is supplied, the server
-    side certificate must be valid for that hostname.
+    side certificate must be valid for that hostname. Raises an error if the
+    context has been disposed.
     """
     let ctx = _ctx
     let verify = _client_verify
@@ -109,7 +111,8 @@ class val SSLContext
 
   fun server(): SSL iso^ ? =>
     """
-    Create a server-side SSL session.
+    Create a server-side SSL session. Raises an error if the context has been
+    disposed.
     """
     let ctx = _ctx
     let verify = _server_verify
@@ -118,11 +121,13 @@ class val SSLContext
   fun ref set_cert(cert: FilePath, key: FilePath) ? =>
     """
     The cert file is a PEM certificate chain. The key file is a private key.
-    Servers must set this. For clients, it is optional.
+    Servers must set this. For clients, it is optional. Raises an error if the
+    context has been disposed.
     """
+    if _ctx.is_null() then error end
+
     if
-      _ctx.is_null()
-        or (cert.path.size() == 0)
+      (cert.path.size() == 0)
         or (key.path.size() == 0)
         or (0 == @SSL_CTX_use_certificate_chain_file(
           _ctx, cert.path.cstring()))
@@ -142,11 +147,13 @@ class val SSLContext
     Use a PEM file and/or a directory of PEM files to specify certificate
     authorities. Clients must set this. For servers, it is optional. Use None
     to indicate no file or no path. Raises an error if these verify locations
-    aren't valid.
+    aren't valid, or if the context has been disposed.
 
     If both `file` and `path` are `None`, on Windows this method loads the
     system root certificates. On Posix it raises an error.
     """
+    if _ctx.is_null() then error end
+
     if (file is None) and (path is None) then
       ifdef windows then
         _load_windows_root_certs()?
@@ -161,8 +168,7 @@ class val SSLContext
       let p = if ps.size() > 0 then ps.cstring() else Pointer[U8] end
 
       if
-        _ctx.is_null()
-          or (f.is_null() and p.is_null())
+        (f.is_null() and p.is_null())
           or (0 == @SSL_CTX_load_verify_locations(_ctx, f, p))
       then
         error
@@ -207,12 +213,11 @@ class val SSLContext
   fun ref set_ciphers(ciphers: String) ? =>
     """
     Set the accepted ciphers. This replaces the existing list. Raises an error
-    if the cipher list is invalid.
+    if the cipher list is invalid, or if the context has been disposed.
     """
-    if
-      _ctx.is_null()
-        or (0 == @SSL_CTX_set_cipher_list(_ctx, ciphers.cstring()))
-    then
+    if _ctx.is_null() then error end
+
+    if 0 == @SSL_CTX_set_cipher_list(_ctx, ciphers.cstring()) then
       error
     end
 
@@ -230,7 +235,8 @@ class val SSLContext
 
   fun ref set_verify_depth(depth: U32) =>
     """
-    Set the verify depth. Defaults to 6.
+    Set the verify depth. Defaults to 6. Does nothing if the context has been
+    disposed.
     """
     if not _ctx.is_null() then
       @SSL_CTX_set_verify_depth(_ctx, depth)
@@ -239,12 +245,15 @@ class val SSLContext
   fun ref set_min_proto_version(version: ULong) ? =>
     """
     Set minimum protocol version. Set to SslAutoVersion, 0,
-    to automatically manage lowest version.
+    to automatically manage lowest version. Raises an error if the context has
+    been disposed.
 
     Supported versions: Ssl3Version, Tls1Version, Tls1u1Version,
                         Tls1u2Version, Tls1u3Version, Dtls1Version,
                         Dtls1u2Version
     """
+    if _ctx.is_null() then error end
+
     let result =
       @SSL_CTX_ctrl(_ctx, _SslCtrlSetMinProtoVersion(), version, Pointer[None])
     if result == 0 then
@@ -254,23 +263,29 @@ class val SSLContext
   fun ref get_min_proto_version(): ILong =>
     """
     Get minimum protocol version. Returns SslAutoVersion, 0,
-    when automatically managing lowest version.
+    when automatically managing lowest version. A disposed context returns
+    SslAutoVersion.
 
     Supported versions: Ssl3Version, Tls1Version, Tls1u1Version,
                         Tls1u2Version, Tls1u3Version, Dtls1Version,
                         Dtls1u2Version
     """
+    if _ctx.is_null() then return SslAutoVersion().ilong() end
+
     @SSL_CTX_ctrl(_ctx, _SslCtrlGetMinProtoVersion(), 0, Pointer[None])
 
   fun ref set_max_proto_version(version: ULong) ? =>
     """
     Set maximum protocol version. Set to SslAutoVersion, 0,
-    to automatically manage higest version.
+    to automatically manage higest version. Raises an error if the context has
+    been disposed.
 
     Supported versions: Ssl3Version, Tls1Version, Tls1u1Version,
                         Tls1u2Version, Tls1u3Version, Dtls1Version,
                         Dtls1u2Version
     """
+    if _ctx.is_null() then error end
+
     let result =
       @SSL_CTX_ctrl(_ctx, _SslCtrlSetMaxProtoVersion(), version, Pointer[None])
     if result == 0 then
@@ -280,20 +295,25 @@ class val SSLContext
   fun ref get_max_proto_version(): ILong =>
     """
     Get maximum protocol version. Returns SslAutoVersion, 0,
-    when automatically managing highest version.
+    when automatically managing highest version. A disposed context returns
+    SslAutoVersion.
 
     Supported versions: Ssl3Version, Tls1Version, Tls1u1Version,
                         Tls1u2Version, Tls1u3Version, Dtls1Version,
                         Dtls1u2Version
     """
+    if _ctx.is_null() then return SslAutoVersion().ilong() end
+
     @SSL_CTX_ctrl(_ctx, _SslCtrlGetMaxProtoVersion(), 0, Pointer[None])
 
   fun ref alpn_set_resolver(resolver: ALPNProtocolResolver box): Bool =>
     """
     Use `resolver` to choose the protocol to be selected for incomming connections.
 
-    Returns true on success.
+    Returns true on success. Returns false if the context has been disposed.
     """
+    if _ctx.is_null() then return false end
+
     ifdef "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl" then
       @SSL_CTX_set_alpn_select_cb(
         _ctx, addressof SSLContext._alpn_select_cb, resolver)
@@ -307,8 +327,10 @@ class val SSLContext
     Configures the SSLContext to advertise the protocol names defined in `protocols` when connecting to a server
     protocol names must have a size of 1 to 255
 
-    Returns true on success.
+    Returns true on success. Returns false if the context has been disposed.
     """
+    if _ctx.is_null() then return false end
+
     ifdef "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl" then
       try
         let proto_list = _ALPNProtocolList.from_array(protocols)?
@@ -357,7 +379,8 @@ class val SSLContext
 
   fun ref allow_tls_v1(state: Bool) =>
     """
-    Allow TLS v1. Defaults to false.
+    Allow TLS v1. Defaults to false. Does nothing if the context has been
+    disposed.
     Deprecated: use set_min_proto_version and set_max_proto_version
     """
     if not _ctx.is_null() then
@@ -370,7 +393,8 @@ class val SSLContext
 
   fun ref allow_tls_v1_1(state: Bool) =>
     """
-    Allow TLS v1.1. Defaults to false.
+    Allow TLS v1.1. Defaults to false. Does nothing if the context has been
+    disposed.
     Deprecated: use set_min_proto_version and set_max_proto_version
     """
     if not _ctx.is_null() then
@@ -383,7 +407,8 @@ class val SSLContext
 
   fun ref allow_tls_v1_2(state: Bool) =>
     """
-    Allow TLS v1.2. Defaults to true.
+    Allow TLS v1.2. Defaults to true. Does nothing if the context has been
+    disposed.
     Deprecated: use set_min_proto_version and set_max_proto_version
     """
     if not _ctx.is_null() then
@@ -396,7 +421,10 @@ class val SSLContext
 
   fun ref dispose() =>
     """
-    Free the SSL context.
+    Free the SSL context. A disposed context cannot create a session, and no
+    configuration of it can take effect. Every method that hands the context to
+    OpenSSL says in its own docstring what it does once the context has been
+    disposed.
     """
     if not _ctx.is_null() then
       @SSL_CTX_free(_ctx)

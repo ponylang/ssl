@@ -10,6 +10,7 @@ use @SSL_free[None](ssl: Pointer[_SSL] tag)
 use @SSL_set_verify[None](ssl: Pointer[_SSL], mode: I32, cb: Pointer[U8])
 use @BIO_s_mem[Pointer[U8]]()
 use @BIO_new[Pointer[_BIO]](typ: Pointer[U8])
+use @BIO_free[I32](bio: Pointer[_BIO] tag)
 use @SSL_set_bio[None](ssl: Pointer[_SSL], rbio: Pointer[_BIO] tag, wbio: Pointer[_BIO] tag)
 use @SSL_set_accept_state[None](ssl: Pointer[_SSL])
 use @SSL_set_connect_state[None](ssl: Pointer[_SSL])
@@ -73,11 +74,9 @@ class SSL
   """
   let _hostname: String
   let _verify: Bool
-  var _ssl: Pointer[_SSL]
-  // `dispose` frees these two along with `_ssl` and nulls all three. Check
-  // `_ssl.is_null()` before touching either of them.
-  var _input: Pointer[_BIO] tag
-  var _output: Pointer[_BIO] tag
+  var _ssl: Pointer[_SSL] = Pointer[_SSL]
+  var _input: Pointer[_BIO] tag = Pointer[_BIO]
+  var _output: Pointer[_BIO] tag = Pointer[_BIO]
   var _state: SSLState = SSLHandshake
   var _read_buf: Array[U8] iso = []
 
@@ -105,7 +104,13 @@ class SSL
     if _input.is_null() then error end
 
     _output = @BIO_new(@BIO_s_mem())
-    if _output.is_null() then error end
+    if _output.is_null() then
+      // `SSL_set_bio` below is what hands the BIOs to the session, and it has
+      // not run, so the `SSL_free` in `_final` will not free `_input`.
+      @BIO_free(_input)
+      _input = Pointer[_BIO]
+      error
+    end
 
     @SSL_set_bio(_ssl, _input, _output)
 

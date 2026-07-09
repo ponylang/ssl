@@ -22,6 +22,21 @@ actor \nodoc\ Main is TestList
     test(_TestSSLSendAfterDispose)
     test(_TestSSLWriteAfterDispose)
     test(_TestSSLALPNSelectedAfterDispose)
+    test(_TestSSLContextDisposeTwice)
+    test(_TestSSLContextALPNSetResolverAfterDispose)
+    test(_TestSSLContextALPNSetClientProtocolsAfterDispose)
+    test(_TestSSLContextSetMinProtoVersionAfterDispose)
+    test(_TestSSLContextSetMaxProtoVersionAfterDispose)
+    test(_TestSSLContextGetMinProtoVersionAfterDispose)
+    test(_TestSSLContextGetMaxProtoVersionAfterDispose)
+    test(_TestSSLContextSetAuthorityRootCertsAfterDispose)
+    test(_TestSSLContextSetAuthorityAfterDispose)
+    test(_TestSSLContextSetCertAfterDispose)
+    test(_TestSSLContextSetCiphersAfterDispose)
+    test(_TestSSLContextSetVerifyDepthAfterDispose)
+    test(_TestSSLContextAllowTlsAfterDispose)
+    test(_TestSSLContextClientAfterDispose)
+    test(_TestSSLContextServerAfterDispose)
     test(_TestTCPSSLWritev)
     test(_TestTCPSSLExpect)
     test(_TestTCPSSLMute)
@@ -1471,6 +1486,419 @@ class \nodoc\ iso _TestSSLALPNSelectedAfterDispose is UnitTest
       "alpn_selected() on a disposed session should return None")
 
     server.dispose()
+
+class \nodoc\ iso _TestSSLContextDisposeTwice is UnitTest
+  """
+  Disposing a context twice does not free it twice, and the context is still
+  inert afterwards.
+
+  `dispose` nulling `_ctx` is what makes the second call safe, and losing that
+  is what this test would catch. The `_ctx.is_null()` check in `dispose` is belt
+  and braces, because `SSL_CTX_free` ignores a null pointer.
+  """
+  fun name(): String => "net/ssl/SSLContext.dispose/twice"
+
+  fun apply(h: TestHelper) =>
+    let ctx = SSLContext
+
+    ctx.dispose()
+    ctx.dispose()
+
+    // A live context accepts this protocol list, so a `false` here is the
+    // context still being disposed and not a list it rejected.
+    h.assert_false(
+      ctx.alpn_set_client_protocols(["h2"]),
+      "a disposed context should still be inert after a second dispose()")
+
+class \nodoc\ iso _TestSSLContextALPNSetResolverAfterDispose is UnitTest
+  """
+  `alpn_set_resolver` on a disposed context returns `false` rather than passing
+  a null `SSL_CTX*` to `SSL_CTX_set_alpn_select_cb`, which dereferences it on
+  every backend.
+
+  The live context returns `true`, so the `false` afterwards is the disposed
+  check and not a resolver the context rejected.
+  """
+  fun name(): String => "net/ssl/SSLContext.alpn_set_resolver/after_dispose"
+
+  fun apply(h: TestHelper) =>
+    // The resolver is handed to OpenSSL as callback data, which the Pony GC
+    // cannot see. Hold it here so it outlives the context.
+    let resolver = ALPNStandardProtocolResolver(["h2"])
+    let ctx = SSLContext
+
+    h.assert_true(
+      ctx.alpn_set_resolver(resolver),
+      "alpn_set_resolver() on a live context should return true")
+
+    ctx.dispose()
+
+    h.assert_false(
+      ctx.alpn_set_resolver(resolver),
+      "alpn_set_resolver() on a disposed context should return false")
+
+class \nodoc\ iso _TestSSLContextALPNSetClientProtocolsAfterDispose is UnitTest
+  """
+  `alpn_set_client_protocols` on a disposed context returns `false` rather than
+  passing a null `SSL_CTX*` to `SSL_CTX_set_alpn_protos`, which dereferences it
+  on every backend.
+
+  The protocol list is valid and the live context accepts it, so the `false`
+  afterwards is the disposed check and not the encoding failure that also
+  returns `false`.
+  """
+  fun name(): String =>
+    "net/ssl/SSLContext.alpn_set_client_protocols/after_dispose"
+
+  fun apply(h: TestHelper) =>
+    let ctx = SSLContext
+
+    h.assert_true(
+      ctx.alpn_set_client_protocols(["h2"]),
+      "alpn_set_client_protocols() on a live context should return true")
+
+    ctx.dispose()
+
+    h.assert_false(
+      ctx.alpn_set_client_protocols(["h2"]),
+      "alpn_set_client_protocols() on a disposed context should return false")
+
+class \nodoc\ iso _TestSSLContextSetMinProtoVersionAfterDispose is UnitTest
+  """
+  `set_min_proto_version` on a disposed context raises an error rather than
+  passing a null `SSL_CTX*` to `SSL_CTX_ctrl`.
+
+  This test passes with and without the disposed check on OpenSSL, whose
+  `SSL_CTX_ctrl` returns 0 for a null context, which this method already turns
+  into an error. LibreSSL's `SSL_CTX_ctrl` dereferences the context instead, so
+  LibreSSL is where the check keeps this from being a crash.
+  """
+  fun name(): String => "net/ssl/SSLContext.set_min_proto_version/after_dispose"
+
+  fun apply(h: TestHelper) =>
+    let ctx = SSLContext
+
+    try
+      ctx.set_min_proto_version(Tls1u2Version())?
+    else
+      h.fail("set_min_proto_version() on a live context should not raise")
+    end
+
+    ctx.dispose()
+
+    try
+      ctx.set_min_proto_version(Tls1u2Version())?
+      h.fail("set_min_proto_version() on a disposed context should raise")
+    end
+
+class \nodoc\ iso _TestSSLContextSetMaxProtoVersionAfterDispose is UnitTest
+  """
+  `set_max_proto_version` on a disposed context raises an error rather than
+  passing a null `SSL_CTX*` to `SSL_CTX_ctrl`.
+
+  Carries the same caveat as
+  `net/ssl/SSLContext.set_min_proto_version/after_dispose`: only LibreSSL
+  crashes without the check.
+  """
+  fun name(): String => "net/ssl/SSLContext.set_max_proto_version/after_dispose"
+
+  fun apply(h: TestHelper) =>
+    let ctx = SSLContext
+
+    try
+      ctx.set_max_proto_version(Tls1u3Version())?
+    else
+      h.fail("set_max_proto_version() on a live context should not raise")
+    end
+
+    ctx.dispose()
+
+    try
+      ctx.set_max_proto_version(Tls1u3Version())?
+      h.fail("set_max_proto_version() on a disposed context should raise")
+    end
+
+class \nodoc\ iso _TestSSLContextGetMinProtoVersionAfterDispose is UnitTest
+  """
+  `get_min_proto_version` on a disposed context returns `SslAutoVersion` rather
+  than passing a null `SSL_CTX*` to `SSL_CTX_ctrl`.
+
+  `create` sets the minimum to `Tls1u2Version`, so the `SslAutoVersion`
+  afterwards is not the value a live context would have returned.
+
+  This test passes with and without the disposed check on OpenSSL, whose
+  `SSL_CTX_ctrl` returns 0 for a null context. LibreSSL's dereferences it, so
+  LibreSSL is where the check keeps this from being a crash.
+  """
+  fun name(): String => "net/ssl/SSLContext.get_min_proto_version/after_dispose"
+
+  fun apply(h: TestHelper) =>
+    let ctx = SSLContext
+
+    h.assert_eq[ILong](
+      Tls1u2Version().ilong(),
+      ctx.get_min_proto_version(),
+      "create() should have set the minimum protocol version to TLS v1.2")
+
+    ctx.dispose()
+
+    h.assert_eq[ILong](
+      SslAutoVersion().ilong(),
+      ctx.get_min_proto_version(),
+      "get_min_proto_version() on a disposed context should return "
+        + "SslAutoVersion")
+
+class \nodoc\ iso _TestSSLContextGetMaxProtoVersionAfterDispose is UnitTest
+  """
+  `get_max_proto_version` on a disposed context returns `SslAutoVersion` rather
+  than passing a null `SSL_CTX*` to `SSL_CTX_ctrl`.
+
+  `create` leaves the maximum at `SslAutoVersion`, so this test sets it to
+  `Tls1u3Version` first. Without that, the assertion after the dispose would
+  hold for a live context too.
+
+  Carries the same caveat as
+  `net/ssl/SSLContext.get_min_proto_version/after_dispose`: only LibreSSL
+  crashes without the check.
+  """
+  fun name(): String => "net/ssl/SSLContext.get_max_proto_version/after_dispose"
+
+  fun apply(h: TestHelper) =>
+    let ctx = SSLContext
+
+    try
+      ctx.set_max_proto_version(Tls1u3Version())?
+    else
+      h.fail("set_max_proto_version() on a live context should not raise")
+      return
+    end
+
+    h.assert_eq[ILong](
+      Tls1u3Version().ilong(),
+      ctx.get_max_proto_version(),
+      "the maximum protocol version should read back as TLS v1.3")
+
+    ctx.dispose()
+
+    h.assert_eq[ILong](
+      SslAutoVersion().ilong(),
+      ctx.get_max_proto_version(),
+      "get_max_proto_version() on a disposed context should return "
+        + "SslAutoVersion")
+
+class \nodoc\ iso _TestSSLContextSetAuthorityRootCertsAfterDispose is UnitTest
+  """
+  `set_authority(None, None)` on a disposed context raises an error rather than
+  loading the system root certificates into a null `SSL_CTX*`.
+
+  On Posix this raises whether or not the context is disposed; there are no
+  system root certificates to load and the method has always raised. On Windows
+  a live context loads them, and a disposed one used to reach
+  `SSL_CTX_set_cert_store` with a null context and crash. Windows CI is where
+  this test earns its keep.
+  """
+  fun name(): String =>
+    "net/ssl/SSLContext.set_authority/root_certs_after_dispose"
+
+  fun apply(h: TestHelper) =>
+    let ctx = SSLContext
+
+    ctx.dispose()
+
+    try
+      ctx.set_authority(None, None)?
+      h.fail("set_authority(None, None) on a disposed context should raise")
+    end
+
+class \nodoc\ iso _TestSSLContextSetAuthorityAfterDispose is UnitTest
+  """
+  `set_authority` on a disposed context raises an error. This locks in a guard
+  the disposed context already had.
+  """
+  fun name(): String => "net/ssl/SSLContext.set_authority/after_dispose"
+
+  fun apply(h: TestHelper) =>
+    let auth = FileAuth(h.env.root)
+    let ctx = SSLContext
+
+    try
+      ctx.set_authority(FilePath(auth, "assets/cert.pem"))?
+    else
+      h.fail("set_authority() on a live context should not raise")
+    end
+
+    ctx.dispose()
+
+    try
+      ctx.set_authority(FilePath(auth, "assets/cert.pem"))?
+      h.fail("set_authority() on a disposed context should raise")
+    end
+
+class \nodoc\ iso _TestSSLContextSetCertAfterDispose is UnitTest
+  """
+  `set_cert` on a disposed context raises an error. This locks in a guard the
+  disposed context already had.
+  """
+  fun name(): String => "net/ssl/SSLContext.set_cert/after_dispose"
+
+  fun apply(h: TestHelper) =>
+    let auth = FileAuth(h.env.root)
+    let cert = FilePath(auth, "assets/cert.pem")
+    let key = FilePath(auth, "assets/key.pem")
+    let ctx = SSLContext
+
+    try
+      ctx.set_cert(cert, key)?
+    else
+      h.fail("set_cert() on a live context should not raise")
+    end
+
+    ctx.dispose()
+
+    try
+      ctx.set_cert(cert, key)?
+      h.fail("set_cert() on a disposed context should raise")
+    end
+
+class \nodoc\ iso _TestSSLContextSetCiphersAfterDispose is UnitTest
+  """
+  `set_ciphers` on a disposed context raises an error. This locks in a guard the
+  disposed context already had.
+
+  The cipher list is one a live context accepts, so the error after the dispose
+  is the disposed check and not the invalid-cipher-list error.
+  """
+  fun name(): String => "net/ssl/SSLContext.set_ciphers/after_dispose"
+
+  fun apply(h: TestHelper) =>
+    let ctx = SSLContext
+
+    try
+      ctx.set_ciphers("HIGH")?
+    else
+      h.fail("set_ciphers(\"HIGH\") on a live context should not raise")
+    end
+
+    ctx.dispose()
+
+    try
+      ctx.set_ciphers("HIGH")?
+      h.fail("set_ciphers() on a disposed context should raise")
+    end
+
+class \nodoc\ iso _TestSSLContextSetVerifyDepthAfterDispose is UnitTest
+  """
+  `set_verify_depth` on a disposed context does nothing. This locks in a guard
+  the disposed context already had; without it, `SSL_CTX_set_verify_depth`
+  dereferences the null context on every backend.
+
+  There is nothing to observe beyond the call returning, so the context is
+  checked for inertness afterwards.
+  """
+  fun name(): String => "net/ssl/SSLContext.set_verify_depth/after_dispose"
+
+  fun apply(h: TestHelper) =>
+    let ctx = SSLContext
+
+    ctx.dispose()
+    ctx.set_verify_depth(4)
+
+    // A live context accepts this protocol list, so a `false` here is the
+    // context still being disposed and not a list it rejected.
+    h.assert_false(
+      ctx.alpn_set_client_protocols(["h2"]),
+      "the context should still be disposed")
+
+class \nodoc\ iso _TestSSLContextAllowTlsAfterDispose is UnitTest
+  """
+  `allow_tls_v1`, `allow_tls_v1_1` and `allow_tls_v1_2` on a disposed context do
+  nothing. This locks in guards the disposed context already had.
+
+  Unlike the protocol version methods, these catch a missing guard on every
+  backend. They reach `SSL_CTX_set_options` and `SSL_CTX_clear_options` on
+  OpenSSL and `SSL_CTX_ctrl` on LibreSSL, and all three dereference the null
+  context.
+
+  Both states of each are exercised, because one clears an option and the other
+  sets it, and they reach different C functions on OpenSSL.
+  """
+  fun name(): String => "net/ssl/SSLContext.allow_tls/after_dispose"
+
+  fun apply(h: TestHelper) =>
+    let ctx = SSLContext
+
+    ctx.dispose()
+
+    ctx.allow_tls_v1(true)
+    ctx.allow_tls_v1(false)
+    ctx.allow_tls_v1_1(true)
+    ctx.allow_tls_v1_1(false)
+    ctx.allow_tls_v1_2(true)
+    ctx.allow_tls_v1_2(false)
+
+    // A live context accepts this protocol list, so a `false` here is the
+    // context still being disposed and not a list it rejected.
+    h.assert_false(
+      ctx.alpn_set_client_protocols(["h2"]),
+      "the context should still be disposed")
+
+class \nodoc\ iso _TestSSLContextClientAfterDispose is UnitTest
+  """
+  `client` on a disposed context raises an error rather than handing a null
+  context to `SSL_new`.
+
+  Two things make it raise and the test cannot tell them apart: `SSL._create`
+  checks the context before it calls `SSL_new`, and `SSL_new` returns null for a
+  null context on every backend, which `SSL._create` raises on as well.
+  """
+  fun name(): String => "net/ssl/SSLContext.client/after_dispose"
+
+  fun apply(h: TestHelper) =>
+    let ctx = SSLContext
+
+    try
+      let session = ctx.client()?
+      session.dispose()
+    else
+      h.fail("client() on a live context should not raise")
+    end
+
+    ctx.dispose()
+
+    try
+      let session = ctx.client()?
+      session.dispose()
+      h.fail("client() on a disposed context should raise")
+    end
+
+class \nodoc\ iso _TestSSLContextServerAfterDispose is UnitTest
+  """
+  `server` on a disposed context raises an error rather than handing a null
+  context to `SSL_new`.
+
+  Carries the same caveat as `net/ssl/SSLContext.client/after_dispose`: the
+  context check in `SSL._create` and `SSL_new` returning null both produce the
+  error, and the test cannot tell them apart.
+  """
+  fun name(): String => "net/ssl/SSLContext.server/after_dispose"
+
+  fun apply(h: TestHelper) =>
+    let ctx = SSLContext
+
+    try
+      let session = ctx.server()?
+      session.dispose()
+    else
+      h.fail("server() on a live context should not raise")
+    end
+
+    ctx.dispose()
+
+    try
+      let session = ctx.server()?
+      session.dispose()
+      h.fail("server() on a disposed context should raise")
+    end
 
 class \nodoc\ iso _TestALPNProtocolListRoundTrip is Property1[Array[String]]
   fun name(): String =>
