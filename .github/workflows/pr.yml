@@ -104,6 +104,7 @@ jobs:
           Expand-Archive -Force -Path C:\corral.zip -DestinationPath C:\ponyc;
           $env:PATH = 'C:\ponyc\bin;' + $env:PATH;
           .\make.ps1 -Command test 2>&1;
+          .\make.ps1 -Command examples 2>&1;
 
   test-arm64-windows-vs-ponyc-release:
     name: Windows arm64 (LibreSSL) with most recent ponyc release
@@ -132,3 +133,4 @@ jobs:
           Expand-Archive -Force -Path C:\corral.zip -DestinationPath C:\ponyc;
           $env:PATH = 'C:\ponyc\bin;' + $env:PATH;
           .\make.ps1 -Command test 2>&1;
+          .\make.ps1 -Command examples 2>&1;
