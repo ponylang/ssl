@@ -47,6 +47,7 @@ actor \nodoc\ Main is TestList
       test(Property1UnitTest[USize](_TestShake128XofPrefix))
       test(Property1UnitTest[USize](_TestShake256XofPrefix))
     end
+    test(_TestHashFnBoxReceiver)
     test(Property1UnitTest[USize](_TestHashFnOutputLength))
     test(Property1UnitTest[USize](_TestHashFnDeterministic))
     test(Property1UnitTest[USize](_TestHashFnDigestEquivalence))
@@ -889,6 +890,21 @@ class \nodoc\ iso _TestShake256XofPrefix is Property1[USize]
         "e952d90136cb23413ff22b266e2f5dd42294a34bc311394b04863c039011f179",
         ToHexString(large_result.trim(0, 32)))
     end
+
+primitive \nodoc\ _BoxReceiverHashFn is HashFn
+  fun apply(input: ByteSeq): Array[U8] val =>
+    recover val Array[U8].init(0x2A, input.size()) end
+
+class \nodoc\ iso _TestHashFnBoxReceiver is UnitTest
+  """
+  `HashFn.apply` takes a `box` receiver, so a primitive whose `apply` is a
+  plain `fun` satisfies the interface and a `HashFn val` can call it.
+  """
+  fun name(): String => "crypto/HashFn/box_receiver"
+
+  fun apply(h: TestHelper) =>
+    let f: HashFn val = _BoxReceiverHashFn
+    h.assert_array_eq[U8]([as U8: 0x2A; 0x2A; 0x2A], f("abc"))
 
 class \nodoc\ iso _TestHashFnOutputLength is Property1[USize]
   fun name(): String => "crypto/HashFn/property/output_length"

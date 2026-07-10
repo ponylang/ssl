@@ -24,7 +24,7 @@ primitive HmacSha256
   When it raises, reject. Do not compare a message against a code of your own
   making: a code you invent is one an attacker can send you.
   """
-  fun tag apply(key: ByteSeq, data: ByteSeq): Array[U8] val ? =>
+  fun apply(key: ByteSeq, data: ByteSeq): Array[U8] val ? =>
     if key.size() > I32.max_value().usize() then error end
 
     recover

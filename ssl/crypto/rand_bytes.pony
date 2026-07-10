@@ -17,7 +17,7 @@ primitive RandBytes
   let nonce = RandBytes(24)?
   ```
   """
-  fun tag apply(size: USize): Array[U8] val ? =>
+  fun apply(size: USize): Array[U8] val ? =>
     // `RAND_bytes` takes an `int`. A `size` that does not fit one narrows to a
     // smaller count, and the bytes past it stay zero while `RAND_bytes` reports
     // success. Checked before the array is allocated, so an absurd `size` costs
