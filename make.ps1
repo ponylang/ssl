@@ -1,5 +1,5 @@
 Param(
-  [Parameter(Position=0, HelpMessage="The action to take (build, test, install, package, clean).")]
+  [Parameter(Position=0, HelpMessage="The action to take (build, test, examples, install, package, clean).")]
   [string]
   $Command = 'build',
 
@@ -150,6 +150,27 @@ function BuildTest
   return $testFile
 }
 
+function BuildExamples
+{
+  $examplesDir = Join-Path -Path $rootDir -ChildPath "examples"
+
+  foreach ($example in (Get-ChildItem -Path $examplesDir -Directory))
+  {
+    $exampleName = $example.Name
+    Write-Host "Building example: $exampleName"
+
+    Write-Host "corral fetch"
+    $output = (corral fetch)
+    $output | ForEach-Object { Write-Host $_ }
+    if ($LastExitCode -ne 0) { throw "Error" }
+
+    Write-Host "corral run -- ponyc $configFlag $ponyArgs --output `"$buildDir`" `"$($example.FullName)`""
+    $output = (corral run -- ponyc $configFlag $ponyArgs --output "$buildDir" "$($example.FullName)")
+    $output | ForEach-Object { Write-Host $_ }
+    if ($LastExitCode -ne 0) { throw "Error building example $exampleName" }
+  }
+}
+
 switch ($Command.ToLower())
 {
   "build"
@@ -176,6 +197,16 @@ switch ($Command.ToLower())
     Write-Host "$testFile --sequential"
     & "$testFile" --sequential
     if ($LastExitCode -ne 0) { throw "Error" }
+    break
+  }
+
+  "examples"
+  {
+    if (-not (Test-Path "$buildDir"))
+    {
+      mkdir "$buildDir"
+    }
+    BuildExamples
     break
   }
 
@@ -239,6 +270,6 @@ switch ($Command.ToLower())
 
   default
   {
-    throw "Unknown command '$Command'; must be one of (build, test, install, package, clean, distclean)."
+    throw "Unknown command '$Command'; must be one of (build, test, examples, install, package, clean, distclean)."
   }
 }
