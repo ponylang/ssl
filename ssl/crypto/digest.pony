@@ -8,7 +8,7 @@ use @EVP_DigestInit_ex[I32](ctx: Pointer[_EVPCTX] tag, t: Pointer[_EVPMD], impl:
 use @EVP_DigestUpdate[I32](ctx: Pointer[_EVPCTX] tag, d: Pointer[U8] tag, cnt: USize)
 use @EVP_DigestFinal_ex[I32](ctx: Pointer[_EVPCTX] tag, md: Pointer[U8] tag, s: Pointer[U32])
 use @EVP_DigestFinalXOF[I32](ctx: Pointer[_EVPCTX] tag, md: Pointer[U8] tag, len: USize) if "openssl_3.0.x" or "openssl_4.0.x"
-use @EVP_MD_CTX_free[None](ctx: Pointer[_EVPCTX]) if "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl"
+use @EVP_MD_CTX_free[None](ctx: Pointer[_EVPCTX] tag) if "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl"
 
 use @EVP_md5[Pointer[_EVPMD]]()
 use @EVP_ripemd160[Pointer[_EVPMD]]()
@@ -29,7 +29,7 @@ class Digest
   produce a final hash from the concatenation of the input with final().
   """
   let _digest_size: USize
-  let _ctx: Pointer[_EVPCTX]
+  var _ctx: Pointer[_EVPCTX] = Pointer[_EVPCTX]
   let _variable_length: Bool
   var _hash: (Array[U8] val | None) = None
 
@@ -206,9 +206,22 @@ class Digest
       else
         compile_error "You must select an SSL version to use."
       end
+      _ctx = Pointer[_EVPCTX]
       let h = (consume digest).array()
       _hash = h
       h
+    end
+
+  fun _final() =>
+    """
+    Free the context of a digest that was dropped without a call to `final()`.
+    """
+    if not _ctx.is_null() then
+      ifdef "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl" then
+        @EVP_MD_CTX_free(_ctx)
+      else
+        compile_error "You must select an SSL version to use."
+      end
     end
 
   fun digest_size(): USize =>
