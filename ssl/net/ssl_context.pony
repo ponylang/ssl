@@ -87,7 +87,7 @@ class val SSLContext
       compile_error "You must select an SSL version to use."
     end
 
-  fun _set_options(opts: U64) =>
+  fun ref _set_options(opts: U64) =>
     ifdef "openssl_3.0.x" or "openssl_4.0.x" then
       @SSL_CTX_set_options(_ctx, opts)
     elseif "openssl_1.1.x" then
@@ -98,7 +98,7 @@ class val SSLContext
       compile_error "You must select an SSL version to use."
     end
 
-  fun _clear_options(opts: U64) =>
+  fun ref _clear_options(opts: U64) =>
     ifdef "openssl_3.0.x" or "openssl_4.0.x" then
       @SSL_CTX_clear_options(_ctx, opts)
     elseif "openssl_1.1.x" then
