@@ -28,8 +28,6 @@ primitive HmacSha256
     if key.size() > I32.max_value().usize() then error end
 
     recover
-      // Use Array.init instead of pony_alloc + from_cpointer to avoid
-      // intermittent GC buffer corruption. See ponyc#4831.
       let size: USize = 32
       let arr = Array[U8].init(0, size)
 
