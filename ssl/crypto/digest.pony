@@ -203,10 +203,7 @@ class Digest
       if _ctx.is_null() then error end
 
       let size = _digest_size
-      let digest =
-        recover String.from_cpointer(
-          @pony_alloc(@pony_ctx(), size), size)
-        end
+      let digest = recover Array[U8].init(0, size) end
 
       var rc: I32 = 0
       ifdef "openssl_3.0.x" or "openssl_4.0.x" then
@@ -231,12 +228,11 @@ class Digest
       end
       _ctx = Pointer[_EVPCTX]
 
-      // `@pony_alloc` does not zero the memory it returns, so a digest OpenSSL
-      // did not write holds whatever this actor freed last. Raising drops it
-      // rather than handing it back as a hash.
+      // On failure OpenSSL wrote nothing, so `digest` is still all zeros.
+      // Raise rather than hand a buffer OpenSSL did not fill back as a hash.
       if rc != 1 then error end
 
-      let h = (consume digest).array()
+      let h: Array[U8] val = consume digest
       _hash = h
       h
     end

@@ -2,6 +2,7 @@ use "pony_test"
 use "pony_check"
 
 use @memset[Pointer[None]](dst: Pointer[None], value: I32, n: USize)
+use @pony_ctx[Pointer[None]]()
 use @pony_triggergc[None](ctx: Pointer[None])
 
 actor \nodoc\ Main is TestList

@@ -2,14 +2,14 @@ use "path:/usr/local/opt/libressl/lib" if osx and x86
 use "path:/opt/homebrew/opt/libressl/lib" if osx and arm
 use "lib:crypto"
 
-use @MD4[Pointer[U8]](d: Pointer[U8] tag, n: USize, md: Pointer[U8])
-use @MD5[Pointer[U8]](d: Pointer[U8] tag, n: USize, md: Pointer[U8])
-use @RIPEMD160[Pointer[U8]](d: Pointer[U8] tag, n: USize, md: Pointer[U8])
-use @SHA1[Pointer[U8]](d: Pointer[U8] tag, n: USize, md: Pointer[U8])
-use @SHA224[Pointer[U8]](d: Pointer[U8] tag, n: USize, md: Pointer[U8])
-use @SHA256[Pointer[U8]](d: Pointer[U8] tag, n: USize, md: Pointer[U8])
-use @SHA384[Pointer[U8]](d: Pointer[U8] tag, n: USize, md: Pointer[U8])
-use @SHA512[Pointer[U8]](d: Pointer[U8] tag, n: USize, md: Pointer[U8])
+use @MD4[Pointer[U8]](d: Pointer[U8] tag, n: USize, md: Pointer[U8] tag)
+use @MD5[Pointer[U8]](d: Pointer[U8] tag, n: USize, md: Pointer[U8] tag)
+use @RIPEMD160[Pointer[U8]](d: Pointer[U8] tag, n: USize, md: Pointer[U8] tag)
+use @SHA1[Pointer[U8]](d: Pointer[U8] tag, n: USize, md: Pointer[U8] tag)
+use @SHA224[Pointer[U8]](d: Pointer[U8] tag, n: USize, md: Pointer[U8] tag)
+use @SHA256[Pointer[U8]](d: Pointer[U8] tag, n: USize, md: Pointer[U8] tag)
+use @SHA384[Pointer[U8]](d: Pointer[U8] tag, n: USize, md: Pointer[U8] tag)
+use @SHA512[Pointer[U8]](d: Pointer[U8] tag, n: USize, md: Pointer[U8] tag)
 
 use "format"
 
@@ -30,9 +30,9 @@ primitive MD4 is HashFn
   fun apply(input: ByteSeq): Array[U8] val =>
     recover
       let size: USize = 16
-      let digest = @pony_alloc(@pony_ctx(), size)
-      @MD4(input.cpointer(), input.size(), digest)
-      Array[U8].from_cpointer(digest, size)
+      let arr = Array[U8].init(0, size)
+      @MD4(input.cpointer(), input.size(), arr.cpointer())
+      arr
     end
 
 primitive MD5 is HashFn
@@ -42,9 +42,9 @@ primitive MD5 is HashFn
   fun apply(input: ByteSeq): Array[U8] val =>
     recover
       let size: USize = 16
-      let digest = @pony_alloc(@pony_ctx(), size)
-      @MD5(input.cpointer(), input.size(), digest)
-      Array[U8].from_cpointer(digest, size)
+      let arr = Array[U8].init(0, size)
+      @MD5(input.cpointer(), input.size(), arr.cpointer())
+      arr
     end
 
 primitive RIPEMD160 is HashFn
@@ -55,9 +55,9 @@ primitive RIPEMD160 is HashFn
   fun apply(input: ByteSeq): Array[U8] val =>
     recover
       let size: USize = 20
-      let digest = @pony_alloc(@pony_ctx(), size)
-      @RIPEMD160(input.cpointer(), input.size(), digest)
-      Array[U8].from_cpointer(digest, size)
+      let arr = Array[U8].init(0, size)
+      @RIPEMD160(input.cpointer(), input.size(), arr.cpointer())
+      arr
     end
 
 primitive SHA1 is HashFn
@@ -68,9 +68,9 @@ primitive SHA1 is HashFn
   fun apply(input: ByteSeq): Array[U8] val =>
     recover
       let size: USize = 20
-      let digest = @pony_alloc(@pony_ctx(), size)
-      @SHA1(input.cpointer(), input.size(), digest)
-      Array[U8].from_cpointer(digest, size)
+      let arr = Array[U8].init(0, size)
+      @SHA1(input.cpointer(), input.size(), arr.cpointer())
+      arr
     end
 
 primitive SHA224 is HashFn
@@ -81,9 +81,9 @@ primitive SHA224 is HashFn
   fun apply(input: ByteSeq): Array[U8] val =>
     recover
       let size: USize = 28
-      let digest = @pony_alloc(@pony_ctx(), size)
-      @SHA224(input.cpointer(), input.size(), digest)
-      Array[U8].from_cpointer(digest, size)
+      let arr = Array[U8].init(0, size)
+      @SHA224(input.cpointer(), input.size(), arr.cpointer())
+      arr
     end
 
 primitive SHA256 is HashFn
@@ -94,9 +94,9 @@ primitive SHA256 is HashFn
   fun apply(input: ByteSeq): Array[U8] val =>
     recover
       let size: USize = 32
-      let digest = @pony_alloc(@pony_ctx(), size)
-      @SHA256(input.cpointer(), input.size(), digest)
-      Array[U8].from_cpointer(digest, size)
+      let arr = Array[U8].init(0, size)
+      @SHA256(input.cpointer(), input.size(), arr.cpointer())
+      arr
     end
 
 primitive SHA384 is HashFn
@@ -107,9 +107,9 @@ primitive SHA384 is HashFn
   fun apply(input: ByteSeq): Array[U8] val =>
     recover
       let size: USize = 48
-      let digest = @pony_alloc(@pony_ctx(), size)
-      @SHA384(input.cpointer(), input.size(), digest)
-      Array[U8].from_cpointer(digest, size)
+      let arr = Array[U8].init(0, size)
+      @SHA384(input.cpointer(), input.size(), arr.cpointer())
+      arr
     end
 
 primitive SHA512 is HashFn
@@ -120,9 +120,9 @@ primitive SHA512 is HashFn
   fun apply(input: ByteSeq): Array[U8] val =>
     recover
       let size: USize = 64
-      let digest = @pony_alloc(@pony_ctx(), size)
-      @SHA512(input.cpointer(), input.size(), digest)
-      Array[U8].from_cpointer(digest, size)
+      let arr = Array[U8].init(0, size)
+      @SHA512(input.cpointer(), input.size(), arr.cpointer())
+      arr
     end
 
 primitive ToHexString
