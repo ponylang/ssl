@@ -26,6 +26,9 @@ actor \nodoc\ Main is TestList
     test(_TestHmacSha256Rfc4231)
     test(_TestHmacSha256Scram)
     test(_TestRandBytes)
+    test(_TestHmacSha256EmptyMessage)
+    test(_TestRandBytesSizeTooLarge)
+    test(_TestPbkdf2Sha256ArgumentsTooLarge)
     test(Property1UnitTest[USize](_TestHmacSha256OutputLength))
     test(Property1UnitTest[USize](_TestHmacSha256Deterministic))
     test(Property1UnitTest[USize](_TestRandBytesOutputLength))
@@ -144,64 +147,64 @@ class \nodoc\ iso _TestDigest is UnitTest
   fun name(): String => "crypto/Digest"
 
   fun apply(h: TestHelper) ? =>
-    let md5 = Digest.md5()
+    let md5 = Digest.md5()?
     md5.append("message1")?
     md5.append("message2")?
     h.assert_eq[String](
       "94af09c09bb9bb7b5c94fec6e6121482",
-      ToHexString(md5.final()))
+      ToHexString(md5.final()?))
 
-    let sha1 = Digest.sha1()
+    let sha1 = Digest.sha1()?
     sha1.append("message1")?
     sha1.append("message2")?
     h.assert_eq[String](
       "942682e2e49f37b4b224fc1aec1a53a25967e7e0",
-      ToHexString(sha1.final()))
+      ToHexString(sha1.final()?))
 
-    let sha224 = Digest.sha224()
+    let sha224 = Digest.sha224()?
     sha224.append("message1")?
     sha224.append("message2")?
     h.assert_eq[String](
       "fbba013f116e8b09b044b2a785ed7fb6a65ce672d724c1fb20500d45",
-      ToHexString(sha224.final()))
+      ToHexString(sha224.final()?))
 
-    let sha256 = Digest.sha256()
+    let sha256 = Digest.sha256()?
     sha256.append("message1")?
     sha256.append("message2")?
     h.assert_eq[String](
       "68d9b867db4bde630f3c96270b2320a31a72aafbc39997eb2bc9cf2da21e5213",
-      ToHexString(sha256.final()))
+      ToHexString(sha256.final()?))
 
-    let sha384 = Digest.sha384()
+    let sha384 = Digest.sha384()?
     sha384.append("message1")?
     sha384.append("message2")?
     h.assert_eq[String](
       "7736dd67494a7072bf255852bd327406b398cb0b16cb400fcd3fcfb6827d74ab"+
       "9b14673d50515b6273ef15543325f8d3",
-      ToHexString(sha384.final()))
+      ToHexString(sha384.final()?))
 
-    let sha512 = Digest.sha512()
+    let sha512 = Digest.sha512()?
     sha512.append("message1")?
     sha512.append("message2")?
     h.assert_eq[String](
       "3511f4825021a90cd55d37db5c3250e6bbcffc9a0d56d88b4e2878ac5b094692"+
       "cd945c6a77006272322f911c9be31fa970043daa4b61cee607566cbfa2c69b09",
-      ToHexString(sha512.final()))
+      ToHexString(sha512.final()?))
 
     ifdef "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" then
-      let shake128 = Digest.shake128()
+      let shake128 = Digest.shake128()?
       shake128.append("message1")?
       shake128.append("message2")?
       h.assert_eq[String](
       "0d11671f23b6356bdf4ba8dcae37419d",
-      ToHexString(shake128.final()))
+      ToHexString(shake128.final()?))
 
-      let shake256 = Digest.shake256()
+      let shake256 = Digest.shake256()?
       shake256.append("message1")?
       shake256.append("message2")?
       h.assert_eq[String](
       "80e2bbb14639e3b1fc1df80b47b67fb518b0ed26a1caddfa10d68f7992c33820",
-      ToHexString(shake256.final()))
+      ToHexString(shake256.final()?))
     end
 
 class \nodoc\ iso _TestDigestFinalTwice is UnitTest
@@ -218,12 +221,12 @@ class \nodoc\ iso _TestDigestFinalTwice is UnitTest
     let expected =
       "68d9b867db4bde630f3c96270b2320a31a72aafbc39997eb2bc9cf2da21e5213"
 
-    let digest = Digest.sha256()
+    let digest = Digest.sha256()?
     digest.append("message1")?
     digest.append("message2")?
 
-    h.assert_eq[String](expected, ToHexString(digest.final()))
-    h.assert_eq[String](expected, ToHexString(digest.final()))
+    h.assert_eq[String](expected, ToHexString(digest.final()?))
+    h.assert_eq[String](expected, ToHexString(digest.final()?))
 
 class \nodoc\ iso _TestDigestAppendAfterFinal is UnitTest
   """
@@ -236,9 +239,9 @@ class \nodoc\ iso _TestDigestAppendAfterFinal is UnitTest
   fun name(): String => "crypto/Digest/append_after_final"
 
   fun apply(h: TestHelper) ? =>
-    let digest = Digest.sha256()
+    let digest = Digest.sha256()?
     digest.append("message1")?
-    digest.final()
+    digest.final()?
 
     let raised =
       try
@@ -286,10 +289,10 @@ actor \nodoc\ _TestDigestDropRunner
     // The digest and the holder are both locals. Once this behavior returns
     // nothing roots either of them.
     try
-      let digest = Digest.sha256()
+      let digest = Digest.sha256()?
       digest.append("message1")?
       if _finalize then
-        digest.final()
+        digest.final()?
       end
       _TestDigestHolder(_flag.cpointer(), digest)
     else
@@ -350,7 +353,7 @@ class \nodoc\ iso _TestHmacSha256Rfc4231 is UnitTest
   """
   fun name(): String => "crypto/HmacSha256/RFC4231"
 
-  fun apply(h: TestHelper) =>
+  fun apply(h: TestHelper) ? =>
     // Test Case 1: Key = 20 bytes of 0x0b, Data = "Hi There"
     let key1 = recover val
       let a = Array[U8].create(20)
@@ -360,12 +363,12 @@ class \nodoc\ iso _TestHmacSha256Rfc4231 is UnitTest
     end
     h.assert_eq[String](
       "b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7",
-      ToHexString(HmacSha256(key1, "Hi There")))
+      ToHexString(HmacSha256(key1, "Hi There")?))
 
     // Test Case 2: Key = "Jefe", Data = "what do ya want for nothing?"
     h.assert_eq[String](
       "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843",
-      ToHexString(HmacSha256("Jefe", "what do ya want for nothing?")))
+      ToHexString(HmacSha256("Jefe", "what do ya want for nothing?")?))
 
     // Test Case 3: Key = 20 bytes of 0xaa, Data = 50 bytes of 0xdd
     let key3 = recover val
@@ -382,7 +385,7 @@ class \nodoc\ iso _TestHmacSha256Rfc4231 is UnitTest
     end
     h.assert_eq[String](
       "773ea91e36800e46854db8ebd09181a72959098b3ef8c122d9635514ced565fe",
-      ToHexString(HmacSha256(key3, data3)))
+      ToHexString(HmacSha256(key3, data3)?))
 
     // Test Case 4: Key = 0x01..0x19, Data = 50 bytes of 0xcd
     let key4 = recover val
@@ -399,7 +402,7 @@ class \nodoc\ iso _TestHmacSha256Rfc4231 is UnitTest
     end
     h.assert_eq[String](
       "82558a389a443c0ea4cc819899f2083a85f0faa3e578f8077a2e3ff46729665b",
-      ToHexString(HmacSha256(key4, data4)))
+      ToHexString(HmacSha256(key4, data4)?))
 
     // Test Case 5: Truncation to 128 bits
     let key5 = recover val
@@ -408,7 +411,7 @@ class \nodoc\ iso _TestHmacSha256Rfc4231 is UnitTest
       while i < 20 do a.push(0x0c); i = i + 1 end
       a
     end
-    let hmac5 = HmacSha256(key5, "Test With Truncation")
+    let hmac5 = HmacSha256(key5, "Test With Truncation")?
     h.assert_eq[String](
       "a3b6167473100ee06e0c796c2955552b",
       ToHexString(recover val
@@ -431,7 +434,7 @@ class \nodoc\ iso _TestHmacSha256Rfc4231 is UnitTest
     h.assert_eq[String](
       "60e431591ee0b67f0d8a26aacbf5b77f8e0bc6213728c5140546040f0ee37f54",
       ToHexString(HmacSha256(key6,
-        "Test Using Larger Than Block-Size Key - Hash Key First")))
+        "Test Using Larger Than Block-Size Key - Hash Key First")?))
 
     // Test Case 7: Key = 131 bytes of 0xaa, large key + large data
     h.assert_eq[String](
@@ -439,7 +442,7 @@ class \nodoc\ iso _TestHmacSha256Rfc4231 is UnitTest
       ToHexString(HmacSha256(key6,
         "This is a test using a larger than block-size key and a larger " +
         "than block-size data. The key needs to be hashed before being " +
-        "used by the HMAC algorithm.")))
+        "used by the HMAC algorithm.")?))
 
 class \nodoc\ iso _TestHmacSha256Scram is UnitTest
   """
@@ -449,7 +452,7 @@ class \nodoc\ iso _TestHmacSha256Scram is UnitTest
   """
   fun name(): String => "crypto/HmacSha256/SCRAM"
 
-  fun apply(h: TestHelper) =>
+  fun apply(h: TestHelper) ? =>
     // SaltedPassword from PBKDF2("pencil", salt, 4096, 32)
     let salted_password = recover val [as U8:
       0xc4; 0xa4; 0x95; 0x10; 0x32; 0x3a; 0xb4; 0xf9
@@ -461,12 +464,12 @@ class \nodoc\ iso _TestHmacSha256Scram is UnitTest
     // HMAC(SaltedPassword, "Client Key")
     h.assert_eq[String](
       "a60fc923d67e8644a92d16b96eda5ef4656b0c725c484374be25535576996e8b",
-      ToHexString(HmacSha256(salted_password, "Client Key")))
+      ToHexString(HmacSha256(salted_password, "Client Key")?))
 
     // HMAC(SaltedPassword, "Server Key")
     h.assert_eq[String](
       "c1f3cbc1c13a9d35a14c0990eed97629ea225863e566a4314ab99f3f00e5d9d5",
-      ToHexString(HmacSha256(salted_password, "Server Key")))
+      ToHexString(HmacSha256(salted_password, "Server Key")?))
 
 class \nodoc\ iso _TestPbkdf2Sha256Rfc7914 is UnitTest
   """
@@ -528,16 +531,123 @@ class \nodoc\ iso _TestRandBytes is UnitTest
 
 // PonyCheck property tests
 
+class \nodoc\ iso _TestHmacSha256EmptyMessage is UnitTest
+  """
+  A code over an empty key or an empty message is the code of that key and
+  message, not thirty-two zero bytes.
+
+  An empty `Array[U8]` has a null pointer, and `HMAC` returns NULL when both the
+  key and the message pointers are null. Without the fix, `HmacSha256` asked
+  OpenSSL for a code over an empty key and an empty message, got nothing back,
+  and returned its zeroed output buffer as the code.
+
+  An empty `String` has a pointer, so the same call written with `""` gives the
+  right answer either way. `Array[U8]` is what a caller holds after decoding a
+  zero-length field off the wire.
+  """
+  fun name(): String => "crypto/HmacSha256/empty_message"
+
+  fun apply(h: TestHelper) ? =>
+    let empty = recover val Array[U8] end
+
+    h.assert_eq[String](
+      "b613679a0814d9ec772f95d778c35fc5ff1697c493715653c6c712144292c5ad",
+      ToHexString(HmacSha256(empty, empty)?),
+      "an empty key and an empty message")
+    h.assert_eq[String](
+      "5f576a8d68fe4fb7eb823227246353c0870c3b0e878997341db1226b4bd88d61",
+      ToHexString(HmacSha256(empty, "msg")?),
+      "an empty key")
+    h.assert_eq[String](
+      "5d5d139563c95b5967b9bd9a8c9b233a9dedb45072794cd232dc1b74832607d0",
+      ToHexString(HmacSha256("key", empty)?),
+      "an empty message")
+
+class \nodoc\ iso _TestRandBytesSizeTooLarge is UnitTest
+  """
+  `RandBytes` raises rather than narrowing a size that OpenSSL's `int` cannot
+  hold.
+
+  `RAND_bytes` takes an `int`. A size of `2^32 + 5` narrows to 5: without the
+  check the array is the full size, `RAND_bytes` fills five bytes of it and
+  reports success, and the caller gets a nonce that is four gigabytes of zeros
+  with five random bytes in it.
+
+  A size between `2^31` and `2^32` narrows to a negative `int`, which
+  `RAND_bytes` rejects on its own. Those sizes raise with or without the check
+  and say nothing about it.
+
+  The check runs before the array is allocated, so this test allocates nothing.
+  """
+  fun name(): String => "crypto/RandBytes/size_too_large"
+
+  fun apply(h: TestHelper) =>
+    ifdef lp64 or llp64 then
+      h.assert_error(
+        {()? => RandBytes(4294967301)? },
+        "a size whose low 32 bits are small should raise")
+    end
+
+    h.assert_error(
+      {()? => RandBytes(I32.max_value().usize() + 1)? },
+      "a size larger than an int should raise")
+
+    try
+      h.assert_eq[USize](32, RandBytes(32)?.size(), "a sane size still works")
+    else
+      h.fail("RandBytes should not raise on a sane size")
+    end
+
+class \nodoc\ iso _TestPbkdf2Sha256ArgumentsTooLarge is UnitTest
+  """
+  `Pbkdf2Sha256` raises rather than narrowing an argument that OpenSSL's `int`
+  cannot hold.
+
+  A key length of `2^32 + 5` narrows to 5: without the check the array is the
+  full length, `PKCS5_PBKDF2_HMAC` writes five bytes of it and reports success,
+  and the rest is zeros.
+
+  The iteration count has no such band. Every `U32` too large for an `int`
+  narrows to a negative one, and OpenSSL 3.x rejects that on its own, so the
+  assertion below holds with or without the check. It is here because the four
+  backends do not agree on what they do with a negative iteration count, and
+  this package should not have to know which one it is talking to.
+
+  Each check runs before the key array is allocated.
+  """
+  fun name(): String => "crypto/Pbkdf2Sha256/arguments_too_large"
+
+  fun apply(h: TestHelper) =>
+    ifdef lp64 or llp64 then
+      h.assert_error(
+        {()? => Pbkdf2Sha256("password", "salt", 4096, 4294967301)? },
+        "a key length whose low 32 bits are small should raise")
+    end
+
+    h.assert_error(
+      {()? =>
+        Pbkdf2Sha256("password", "salt", I32.max_value().u32() + 1, 32)?
+      },
+      "an iteration count larger than an int should raise")
+
+    try
+      h.assert_eq[USize](
+        32, Pbkdf2Sha256("password", "salt", 4096, 32)?.size(),
+        "sane arguments still work")
+    else
+      h.fail("Pbkdf2Sha256 should not raise on sane arguments")
+    end
+
 class \nodoc\ iso _TestHmacSha256OutputLength is Property1[USize]
   fun name(): String => "crypto/HmacSha256/property/output_length"
 
   fun gen(): Generator[USize] =>
     Generators.usize(0, 256)
 
-  fun ref property(sample: USize, h: PropertyHelper) =>
+  fun ref property(sample: USize, h: PropertyHelper) ? =>
     let key = recover val Array[U8].init(0x42, sample) end
     let data = recover val Array[U8].init(0xAB, sample) end
-    h.assert_eq[USize](32, HmacSha256(key, data).size())
+    h.assert_eq[USize](32, HmacSha256(key, data)?.size())
 
 class \nodoc\ iso _TestHmacSha256Deterministic is Property1[USize]
   fun name(): String => "crypto/HmacSha256/property/deterministic"
@@ -545,10 +655,10 @@ class \nodoc\ iso _TestHmacSha256Deterministic is Property1[USize]
   fun gen(): Generator[USize] =>
     Generators.usize(0, 256)
 
-  fun ref property(sample: USize, h: PropertyHelper) =>
+  fun ref property(sample: USize, h: PropertyHelper) ? =>
     let key = recover val Array[U8].init(0x42, sample) end
     let data = recover val Array[U8].init(0xAB, sample) end
-    h.assert_array_eq[U8](HmacSha256(key, data), HmacSha256(key, data))
+    h.assert_array_eq[U8](HmacSha256(key, data)?, HmacSha256(key, data)?)
 
 class \nodoc\ iso _TestPbkdf2Sha256OutputLength is Property1[USize]
   fun name(): String => "crypto/Pbkdf2Sha256/property/output_length"
@@ -605,20 +715,20 @@ class \nodoc\ iso _TestShake128KnownAnswer is UnitTest
 
   fun apply(h: TestHelper) ? =>
     ifdef "openssl_3.0.x" or "openssl_4.0.x" then
-      let d32 = Digest.shake128(32)
+      let d32 = Digest.shake128(32)?
       d32.append("message1")?
       d32.append("message2")?
       h.assert_eq[String](
         "0d11671f23b6356bdf4ba8dcae37419df1d0875e1a15c7859eb3ba0096aa262f",
-        ToHexString(d32.final()))
+        ToHexString(d32.final()?))
 
-      let d64 = Digest.shake128(64)
+      let d64 = Digest.shake128(64)?
       d64.append("message1")?
       d64.append("message2")?
       h.assert_eq[String](
         "0d11671f23b6356bdf4ba8dcae37419df1d0875e1a15c7859eb3ba0096aa262f" +
         "3a1cfc86db5b324ac3f8220645ec0740c2171a0b935f362d0c3bfa5ab51be5d0",
-        ToHexString(d64.final()))
+        ToHexString(d64.final()?))
     end
 
 class \nodoc\ iso _TestShake256KnownAnswer is UnitTest
@@ -631,15 +741,15 @@ class \nodoc\ iso _TestShake256KnownAnswer is UnitTest
 
   fun apply(h: TestHelper) ? =>
     ifdef "openssl_3.0.x" or "openssl_4.0.x" then
-      let d64 = Digest.shake256(64)
+      let d64 = Digest.shake256(64)?
       d64.append("message1")?
       d64.append("message2")?
       h.assert_eq[String](
         "80e2bbb14639e3b1fc1df80b47b67fb518b0ed26a1caddfa10d68f7992c33820" +
         "2d0b17a5ebbcef93f51247497f60bcd3f2809a967874d017ef5b51d6b08836cc",
-        ToHexString(d64.final()))
+        ToHexString(d64.final()?))
 
-      let d128 = Digest.shake256(128)
+      let d128 = Digest.shake256(128)?
       d128.append("message1")?
       d128.append("message2")?
       h.assert_eq[String](
@@ -647,7 +757,7 @@ class \nodoc\ iso _TestShake256KnownAnswer is UnitTest
         "2d0b17a5ebbcef93f51247497f60bcd3f2809a967874d017ef5b51d6b08836cc" +
         "af79f3db3fafdf89e7d42270472c3d1a8e55c52a30859e01b5fceba359c21c1e" +
         "76b73180378604d46061c87e65c4740c8ff9721ed16465cef66fefc3c6f2070c",
-        ToHexString(d128.final()))
+        ToHexString(d128.final()?))
     end
 
 class \nodoc\ iso _TestShake128XofPrefixSmall is Property1[USize]
@@ -667,13 +777,13 @@ class \nodoc\ iso _TestShake128XofPrefixSmall is Property1[USize]
       let small_size = sample / 2
       let large_size = sample
 
-      let small = Digest.shake128(small_size)
+      let small = Digest.shake128(small_size)?
       small.append("test input")?
-      let small_result = small.final()
+      let small_result = small.final()?
 
-      let large = Digest.shake128(large_size)
+      let large = Digest.shake128(large_size)?
       large.append("test input")?
-      let large_result = large.final()
+      let large_result = large.final()?
 
       h.assert_array_eq[U8](small_result,
         large_result.trim(0, small_size))
@@ -698,13 +808,13 @@ class \nodoc\ iso _TestShake128XofPrefix is Property1[USize]
       let small_size = sample / 2
       let large_size = sample
 
-      let small = Digest.shake128(small_size)
+      let small = Digest.shake128(small_size)?
       small.append("test input")?
-      let small_result = small.final()
+      let small_result = small.final()?
 
-      let large = Digest.shake128(large_size)
+      let large = Digest.shake128(large_size)?
       large.append("test input")?
-      let large_result = large.final()
+      let large_result = large.final()?
 
       h.assert_array_eq[U8](small_result,
         large_result.trim(0, small_size))
@@ -732,13 +842,13 @@ class \nodoc\ iso _TestShake256XofPrefixSmall is Property1[USize]
       let small_size = sample / 2
       let large_size = sample
 
-      let small = Digest.shake256(small_size)
+      let small = Digest.shake256(small_size)?
       small.append("test input")?
-      let small_result = small.final()
+      let small_result = small.final()?
 
-      let large = Digest.shake256(large_size)
+      let large = Digest.shake256(large_size)?
       large.append("test input")?
-      let large_result = large.final()
+      let large_result = large.final()?
 
       h.assert_array_eq[U8](small_result,
         large_result.trim(0, small_size))
@@ -763,13 +873,13 @@ class \nodoc\ iso _TestShake256XofPrefix is Property1[USize]
       let small_size = sample / 2
       let large_size = sample
 
-      let small = Digest.shake256(small_size)
+      let small = Digest.shake256(small_size)?
       small.append("test input")?
-      let small_result = small.final()
+      let small_result = small.final()?
 
-      let large = Digest.shake256(large_size)
+      let large = Digest.shake256(large_size)?
       large.append("test input")?
-      let large_result = large.final()
+      let large_result = large.final()?
 
       h.assert_array_eq[U8](small_result,
         large_result.trim(0, small_size))
@@ -823,33 +933,33 @@ class \nodoc\ iso _TestHashFnDigestEquivalence is Property1[USize]
   fun ref property(sample: USize, h: PropertyHelper) ? =>
     let input = recover val Array[U8].init(0x42, sample) end
 
-    let md5 = Digest.md5()
+    let md5 = Digest.md5()?
     md5.append(input)?
-    h.assert_array_eq[U8](MD5(input), md5.final())
+    h.assert_array_eq[U8](MD5(input), md5.final()?)
 
-    let ripemd160 = Digest.ripemd160()
+    let ripemd160 = Digest.ripemd160()?
     ripemd160.append(input)?
-    h.assert_array_eq[U8](RIPEMD160(input), ripemd160.final())
+    h.assert_array_eq[U8](RIPEMD160(input), ripemd160.final()?)
 
-    let sha1 = Digest.sha1()
+    let sha1 = Digest.sha1()?
     sha1.append(input)?
-    h.assert_array_eq[U8](SHA1(input), sha1.final())
+    h.assert_array_eq[U8](SHA1(input), sha1.final()?)
 
-    let sha224 = Digest.sha224()
+    let sha224 = Digest.sha224()?
     sha224.append(input)?
-    h.assert_array_eq[U8](SHA224(input), sha224.final())
+    h.assert_array_eq[U8](SHA224(input), sha224.final()?)
 
-    let sha256 = Digest.sha256()
+    let sha256 = Digest.sha256()?
     sha256.append(input)?
-    h.assert_array_eq[U8](SHA256(input), sha256.final())
+    h.assert_array_eq[U8](SHA256(input), sha256.final()?)
 
-    let sha384 = Digest.sha384()
+    let sha384 = Digest.sha384()?
     sha384.append(input)?
-    h.assert_array_eq[U8](SHA384(input), sha384.final())
+    h.assert_array_eq[U8](SHA384(input), sha384.final()?)
 
-    let sha512 = Digest.sha512()
+    let sha512 = Digest.sha512()?
     sha512.append(input)?
-    h.assert_array_eq[U8](SHA512(input), sha512.final())
+    h.assert_array_eq[U8](SHA512(input), sha512.final()?)
 
 class \nodoc\ iso _TestDigestConcatenation is Property2[USize, USize]
   fun name(): String => "crypto/Digest/property/concatenation"
@@ -870,10 +980,10 @@ class \nodoc\ iso _TestDigestConcatenation is Property2[USize, USize]
       a
     end
 
-    let d = Digest.sha256()
+    let d = Digest.sha256()?
     d.append(part1)?
     d.append(part2)?
-    h.assert_array_eq[U8](SHA256(combined), d.final())
+    h.assert_array_eq[U8](SHA256(combined), d.final()?)
 
 class \nodoc\ iso _TestDigestOutputLength is Property1[USize]
   fun name(): String => "crypto/Digest/property/output_length"
@@ -884,33 +994,33 @@ class \nodoc\ iso _TestDigestOutputLength is Property1[USize]
   fun ref property(sample: USize, h: PropertyHelper) ? =>
     let input = recover val Array[U8].init(0x42, sample) end
 
-    let md5 = Digest.md5()
+    let md5 = Digest.md5()?
     md5.append(input)?
-    h.assert_eq[USize](md5.digest_size(), md5.final().size())
+    h.assert_eq[USize](md5.digest_size(), md5.final()?.size())
 
-    let ripemd160 = Digest.ripemd160()
+    let ripemd160 = Digest.ripemd160()?
     ripemd160.append(input)?
-    h.assert_eq[USize](ripemd160.digest_size(), ripemd160.final().size())
+    h.assert_eq[USize](ripemd160.digest_size(), ripemd160.final()?.size())
 
-    let sha1 = Digest.sha1()
+    let sha1 = Digest.sha1()?
     sha1.append(input)?
-    h.assert_eq[USize](sha1.digest_size(), sha1.final().size())
+    h.assert_eq[USize](sha1.digest_size(), sha1.final()?.size())
 
-    let sha224 = Digest.sha224()
+    let sha224 = Digest.sha224()?
     sha224.append(input)?
-    h.assert_eq[USize](sha224.digest_size(), sha224.final().size())
+    h.assert_eq[USize](sha224.digest_size(), sha224.final()?.size())
 
-    let sha256 = Digest.sha256()
+    let sha256 = Digest.sha256()?
     sha256.append(input)?
-    h.assert_eq[USize](sha256.digest_size(), sha256.final().size())
+    h.assert_eq[USize](sha256.digest_size(), sha256.final()?.size())
 
-    let sha384 = Digest.sha384()
+    let sha384 = Digest.sha384()?
     sha384.append(input)?
-    h.assert_eq[USize](sha384.digest_size(), sha384.final().size())
+    h.assert_eq[USize](sha384.digest_size(), sha384.final()?.size())
 
-    let sha512 = Digest.sha512()
+    let sha512 = Digest.sha512()?
     sha512.append(input)?
-    h.assert_eq[USize](sha512.digest_size(), sha512.final().size())
+    h.assert_eq[USize](sha512.digest_size(), sha512.final()?.size())
 
 class \nodoc\ iso _TestConstantTimeCompareReflexive is Property1[USize]
   fun name(): String =>

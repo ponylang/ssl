@@ -134,3 +134,45 @@ When a server selected an ALPN protocol, OpenSSL was left with a pointer to memo
 
 One thing changes for you: if you set your own resolver with `SSLContext.alpn_set_resolver` and it returns a protocol the client did not offer, the handshake now fails instead of continuing. `ALPNStandardProtocolResolver` is unaffected.
 
+
+## Make Digest and HmacSha256 raise on failure
+
+`Digest` and `HmacSha256` now raise when OpenSSL cannot do what you asked, where before they returned a wrong result with no error. Three calls gained a `?`: constructing a `Digest`, `Digest.final`, and `HmacSha256`. `Digest.append` was already partial.
+
+```pony
+// Before
+let digest = Digest.sha256()
+digest.append(data)?
+let hash = digest.final()
+
+let mac = HmacSha256(key, message)
+
+// After
+let digest = Digest.sha256()?
+digest.append(data)?
+let hash = digest.final()?
+
+let mac = HmacSha256(key, message)?
+```
+
+Constructing a `Digest` now raises if OpenSSL cannot allocate its context, rather than returning a digest that fails on every later call. When `HmacSha256` raises, reject the message. Do not fall back to a code of your own — a code you make up is one an attacker can send you.
+
+## Fix HmacSha256 returning an all-zero code when it fails
+
+`HmacSha256` returned thirty-two zero bytes when it could not compute the code, instead of failing. Thirty-two zero bytes is a value an attacker can send, so a program that checks a message by comparing a fresh code against a supplied one would accept a forgery whenever its own computation failed.
+
+It was reachable with ordinary input: computing the code of an empty key and an empty message returned all zeros. `HmacSha256` now returns the real code and raises when the computation actually fails.
+
+## Fix Digest returning a wrong hash or crashing when OpenSSL fails
+
+`Digest` could return a hash of the wrong bytes, or crash while being created, when an OpenSSL call inside it failed.
+
+`final` returned a block of memory as the hash without checking that OpenSSL had written it, so a failed call returned whatever that memory held — a wrong hash, and a leak of whatever was last in it. Creating a digest crashed when OpenSSL could not allocate its working context.
+
+A digest now raises rather than returning a wrong hash, and one that could not be created reports it at the first `append` or `final` rather than crashing.
+
+## Fix crypto functions truncating a length too large for an int
+
+`RandBytes`, `HmacSha256` and `Pbkdf2Sha256` silently truncated a length that did not fit the C `int` OpenSSL takes. `RandBytes`, asked for a number of bytes past four gigabytes, returned a buffer of that size with only a handful of random bytes in it and the rest zero, and reported success.
+
+These functions now raise on a length larger than an `int` can hold, before allocating anything.

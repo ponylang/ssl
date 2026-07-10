@@ -14,6 +14,9 @@ All notable changes to this project will be documented in this file. This projec
 - Allow non-mutating methods to be called on a val receiver ([PR #89](https://github.com/ponylang/ssl/pull/89))
 - Fix leaks when loading Windows root certificates fails ([PR #90](https://github.com/ponylang/ssl/pull/90))
 - Fix a potential use-after-free in ALPN protocol selection ([PR #91](https://github.com/ponylang/ssl/pull/91))
+- Fix HmacSha256 returning an all-zero code when it fails ([PR #92](https://github.com/ponylang/ssl/pull/92))
+- Fix Digest returning a wrong hash or crashing when OpenSSL fails ([PR #92](https://github.com/ponylang/ssl/pull/92))
+- Fix crypto functions truncating a length too large for an int ([PR #92](https://github.com/ponylang/ssl/pull/92))
 
 ### Added
 
@@ -23,6 +26,7 @@ All notable changes to this project will be documented in this file. This projec
 - Add SSLDisposed to SSLState ([PR #68](https://github.com/ponylang/ssl/pull/68))
 - Require a val resolver for alpn_set_resolver ([PR #81](https://github.com/ponylang/ssl/pull/81))
 - Require a val context for SSLContext.client and server ([PR #81](https://github.com/ponylang/ssl/pull/81))
+- Make Digest and HmacSha256 raise on failure ([PR #92](https://github.com/ponylang/ssl/pull/92))
 
 ## [2.1.0] - 2026-04-20
 
