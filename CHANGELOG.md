@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org/) and [Keep a CHANGELOG](http://keepachangelog.com/).
 
-## [unreleased] - unreleased
+## [3.0.0] - 2026-07-10
 
 ### Fixed
 
@@ -17,9 +17,6 @@ All notable changes to this project will be documented in this file. This projec
 - Fix HmacSha256 returning an all-zero code when it fails ([PR #92](https://github.com/ponylang/ssl/pull/92))
 - Fix Digest returning a wrong hash or crashing when OpenSSL fails ([PR #92](https://github.com/ponylang/ssl/pull/92))
 - Fix crypto functions truncating a length too large for an int ([PR #92](https://github.com/ponylang/ssl/pull/92))
-
-### Added
-
 
 ### Changed
 
