@@ -569,23 +569,19 @@ class \nodoc\ _TestTCPSSLPeerCertificateVerifyServerNotify is TCPConnectionNotif
 
 class \nodoc\ iso _TestTCPSSLPeerCertificateHostnameMismatch is UnitTest
   """
-  TLS handshake with the default `_client_verify = true` and a hostname
-  NOT matching the test certificate's SAN. The handshake itself succeeds
-  (self-signed CA is trusted) but X509.valid_for_host rejects the
-  hostname, SSL state becomes SSLAuthFail, and SSLConnection forwards
-  `auth_failed` to the wrapped notify. Complements the positive test by
-  proving that hostname matching actually gates the outcome; without
-  this, a trivially broken `valid_for_host` that always returned true
-  would pass the positive test.
+  TLS handshake with the default `_client_verify = true` and a hostname that
+  does not match the test certificate's SAN. The handshake itself succeeds,
+  because the certificate is signed by an authority the client trusts.
+  `X509.valid_for_host` then rejects the hostname, the SSL state becomes
+  `SSLAuthFail`, and `SSLConnection` forwards `auth_failed` to the wrapped
+  notify.
 
-  Uses separate client and server SSLContexts for the same reason as
-  the positive test — see `_TestTCPSSLPeerCertificateVerify`.
+  The client and server use separate `SSLContext`s. The client's carries no
+  certificate of its own, only the authority, so nothing but the peer's
+  certificate can satisfy the check.
 
-  Note: the test asserts SSLAuthFail is reached but cannot by itself
-  distinguish a hostname-mismatch failure from any other auth failure
-  (e.g. chain validation). The pair with `_TestTCPSSLPeerCertificateVerify`
-  — which would also fail under a broken chain — provides the
-  distinguishing signal.
+  Reaching `SSLAuthFail` does not on its own say that the hostname is what
+  failed. A broken chain would land here too.
   """
   fun name(): String => "net/TCPSSL.peer_certificate_hostname_mismatch"
   fun exclusion_group(): String => "network"
