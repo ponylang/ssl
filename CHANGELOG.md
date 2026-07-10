@@ -13,6 +13,7 @@ All notable changes to this project will be documented in this file. This projec
 - Fix Digest leaking memory when final() is never called ([PR #84](https://github.com/ponylang/ssl/pull/84))
 - Allow non-mutating methods to be called on a val receiver ([PR #89](https://github.com/ponylang/ssl/pull/89))
 - Fix leaks when loading Windows root certificates fails ([PR #90](https://github.com/ponylang/ssl/pull/90))
+- Fix a potential use-after-free in ALPN protocol selection ([PR #91](https://github.com/ponylang/ssl/pull/91))
 
 ### Added
 
