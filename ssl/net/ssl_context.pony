@@ -83,8 +83,8 @@ class val SSLContext
       // Allow only newer ciphers. These raise only if `SSL_CTX_new` failed,
       // and a null context can never make a session, so the swallow is safe.
       try
-        set_min_proto_version(Tls1u2Version())?
-        set_max_proto_version(SslAutoVersion())?
+        set_min_proto_version(TLS1u2Version())?
+        set_max_proto_version(SSLAutoVersion())?
       end
     else
       compile_error "You must select an SSL version to use."
@@ -283,13 +283,13 @@ class val SSLContext
 
   fun ref set_min_proto_version(version: ULong) ? =>
     """
-    Set minimum protocol version. Set to SslAutoVersion, 0,
+    Set minimum protocol version. Set to SSLAutoVersion, 0,
     to automatically manage lowest version. Raises an error if the context has
     been disposed.
 
-    Supported versions: Ssl3Version, Tls1Version, Tls1u1Version,
-                        Tls1u2Version, Tls1u3Version, Dtls1Version,
-                        Dtls1u2Version
+    Supported versions: SSL3Version, TLS1Version, TLS1u1Version,
+                        TLS1u2Version, TLS1u3Version, DTLS1Version,
+                        DTLS1u2Version
     """
     if _ctx.is_null() then error end
 
@@ -302,27 +302,27 @@ class val SSLContext
 
   fun get_min_proto_version(): ILong =>
     """
-    Get minimum protocol version. Returns SslAutoVersion, 0,
+    Get minimum protocol version. Returns SSLAutoVersion, 0,
     when automatically managing lowest version. A disposed context returns
-    SslAutoVersion.
+    SSLAutoVersion.
 
-    Supported versions: Ssl3Version, Tls1Version, Tls1u1Version,
-                        Tls1u2Version, Tls1u3Version, Dtls1Version,
-                        Dtls1u2Version
+    Supported versions: SSL3Version, TLS1Version, TLS1u1Version,
+                        TLS1u2Version, TLS1u3Version, DTLS1Version,
+                        DTLS1u2Version
     """
-    if _ctx.is_null() then return SslAutoVersion().ilong() end
+    if _ctx.is_null() then return SSLAutoVersion().ilong() end
 
     @SSL_CTX_ctrl(_ctx, _SslCtrlGetMinProtoVersion(), 0, Pointer[None])
 
   fun ref set_max_proto_version(version: ULong) ? =>
     """
-    Set maximum protocol version. Set to SslAutoVersion, 0,
+    Set maximum protocol version. Set to SSLAutoVersion, 0,
     to automatically manage higest version. Raises an error if the context has
     been disposed.
 
-    Supported versions: Ssl3Version, Tls1Version, Tls1u1Version,
-                        Tls1u2Version, Tls1u3Version, Dtls1Version,
-                        Dtls1u2Version
+    Supported versions: SSL3Version, TLS1Version, TLS1u1Version,
+                        TLS1u2Version, TLS1u3Version, DTLS1Version,
+                        DTLS1u2Version
     """
     if _ctx.is_null() then error end
 
@@ -335,15 +335,15 @@ class val SSLContext
 
   fun get_max_proto_version(): ILong =>
     """
-    Get maximum protocol version. Returns SslAutoVersion, 0,
+    Get maximum protocol version. Returns SSLAutoVersion, 0,
     when automatically managing highest version. A disposed context returns
-    SslAutoVersion.
+    SSLAutoVersion.
 
-    Supported versions: Ssl3Version, Tls1Version, Tls1u1Version,
-                        Tls1u2Version, Tls1u3Version, Dtls1Version,
-                        Dtls1u2Version
+    Supported versions: SSL3Version, TLS1Version, TLS1u1Version,
+                        TLS1u2Version, TLS1u3Version, DTLS1Version,
+                        DTLS1u2Version
     """
-    if _ctx.is_null() then return SslAutoVersion().ilong() end
+    if _ctx.is_null() then return SSLAutoVersion().ilong() end
 
     @SSL_CTX_ctrl(_ctx, _SslCtrlGetMaxProtoVersion(), 0, Pointer[None])
 

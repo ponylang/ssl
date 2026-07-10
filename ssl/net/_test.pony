@@ -2036,7 +2036,7 @@ class \nodoc\ iso _TestSSLContextSetMinProtoVersionAfterDispose is UnitTest
     let ctx = SSLContext
 
     try
-      ctx.set_min_proto_version(Tls1u2Version())?
+      ctx.set_min_proto_version(TLS1u2Version())?
     else
       h.fail("set_min_proto_version() on a live context should not raise")
     end
@@ -2044,7 +2044,7 @@ class \nodoc\ iso _TestSSLContextSetMinProtoVersionAfterDispose is UnitTest
     ctx.dispose()
 
     try
-      ctx.set_min_proto_version(Tls1u2Version())?
+      ctx.set_min_proto_version(TLS1u2Version())?
       h.fail("set_min_proto_version() on a disposed context should raise")
     end
 
@@ -2063,7 +2063,7 @@ class \nodoc\ iso _TestSSLContextSetMaxProtoVersionAfterDispose is UnitTest
     let ctx = SSLContext
 
     try
-      ctx.set_max_proto_version(Tls1u3Version())?
+      ctx.set_max_proto_version(TLS1u3Version())?
     else
       h.fail("set_max_proto_version() on a live context should not raise")
     end
@@ -2071,16 +2071,16 @@ class \nodoc\ iso _TestSSLContextSetMaxProtoVersionAfterDispose is UnitTest
     ctx.dispose()
 
     try
-      ctx.set_max_proto_version(Tls1u3Version())?
+      ctx.set_max_proto_version(TLS1u3Version())?
       h.fail("set_max_proto_version() on a disposed context should raise")
     end
 
 class \nodoc\ iso _TestSSLContextGetMinProtoVersionAfterDispose is UnitTest
   """
-  `get_min_proto_version` on a disposed context returns `SslAutoVersion` rather
+  `get_min_proto_version` on a disposed context returns `SSLAutoVersion` rather
   than passing a null `SSL_CTX*` to `SSL_CTX_ctrl`.
 
-  `create` sets the minimum to `Tls1u2Version`, so the `SslAutoVersion`
+  `create` sets the minimum to `TLS1u2Version`, so the `SSLAutoVersion`
   afterwards is not the value a live context would have returned.
 
   This test passes with and without the disposed check on OpenSSL, whose
@@ -2093,25 +2093,25 @@ class \nodoc\ iso _TestSSLContextGetMinProtoVersionAfterDispose is UnitTest
     let ctx = SSLContext
 
     h.assert_eq[ILong](
-      Tls1u2Version().ilong(),
+      TLS1u2Version().ilong(),
       ctx.get_min_proto_version(),
       "create() should have set the minimum protocol version to TLS v1.2")
 
     ctx.dispose()
 
     h.assert_eq[ILong](
-      SslAutoVersion().ilong(),
+      SSLAutoVersion().ilong(),
       ctx.get_min_proto_version(),
       "get_min_proto_version() on a disposed context should return "
-        + "SslAutoVersion")
+        + "SSLAutoVersion")
 
 class \nodoc\ iso _TestSSLContextGetMaxProtoVersionAfterDispose is UnitTest
   """
-  `get_max_proto_version` on a disposed context returns `SslAutoVersion` rather
+  `get_max_proto_version` on a disposed context returns `SSLAutoVersion` rather
   than passing a null `SSL_CTX*` to `SSL_CTX_ctrl`.
 
-  `create` leaves the maximum at `SslAutoVersion`, so this test sets it to
-  `Tls1u3Version` first. Without that, the assertion after the dispose would
+  `create` leaves the maximum at `SSLAutoVersion`, so this test sets it to
+  `TLS1u3Version` first. Without that, the assertion after the dispose would
   hold for a live context too.
 
   Carries the same caveat as
@@ -2124,24 +2124,24 @@ class \nodoc\ iso _TestSSLContextGetMaxProtoVersionAfterDispose is UnitTest
     let ctx = SSLContext
 
     try
-      ctx.set_max_proto_version(Tls1u3Version())?
+      ctx.set_max_proto_version(TLS1u3Version())?
     else
       h.fail("set_max_proto_version() on a live context should not raise")
       return
     end
 
     h.assert_eq[ILong](
-      Tls1u3Version().ilong(),
+      TLS1u3Version().ilong(),
       ctx.get_max_proto_version(),
       "the maximum protocol version should read back as TLS v1.3")
 
     ctx.dispose()
 
     h.assert_eq[ILong](
-      SslAutoVersion().ilong(),
+      SSLAutoVersion().ilong(),
       ctx.get_max_proto_version(),
       "get_max_proto_version() on a disposed context should return "
-        + "SslAutoVersion")
+        + "SSLAutoVersion")
 
 class \nodoc\ iso _TestSSLContextGetMinProtoVersionOnValReceiver is UnitTest
   """
@@ -2151,7 +2151,7 @@ class \nodoc\ iso _TestSSLContextGetMinProtoVersionOnValReceiver is UnitTest
   require. A `fun ref` getter cannot be called on a `val` receiver, so this file
   stops compiling if that capability comes back.
 
-  `create` sets the minimum to `Tls1u2Version`, so the assertion is on a value
+  `create` sets the minimum to `TLS1u2Version`, so the assertion is on a value
   the getter had to read out of the context rather than on a default.
   """
   fun name(): String =>
@@ -2161,7 +2161,7 @@ class \nodoc\ iso _TestSSLContextGetMinProtoVersionOnValReceiver is UnitTest
     let ctx: SSLContext val = recover val SSLContext end
 
     h.assert_eq[ILong](
-      Tls1u2Version().ilong(),
+      TLS1u2Version().ilong(),
       ctx.get_min_proto_version(),
       "a val receiver should read back the minimum that create() set")
 
@@ -2173,8 +2173,8 @@ class \nodoc\ iso _TestSSLContextGetMaxProtoVersionOnValReceiver is UnitTest
   require. A `fun ref` getter cannot be called on a `val` receiver, so this file
   stops compiling if that capability comes back.
 
-  `create` leaves the maximum at `SslAutoVersion`, so this context sets it to
-  `Tls1u3Version` before it freezes. Without that, the assertion would hold
+  `create` leaves the maximum at `SSLAutoVersion`, so this context sets it to
+  `TLS1u3Version` before it freezes. Without that, the assertion would hold
   for a context whose maximum was never set.
   """
   fun name(): String =>
@@ -2183,11 +2183,11 @@ class \nodoc\ iso _TestSSLContextGetMaxProtoVersionOnValReceiver is UnitTest
   fun apply(h: TestHelper) ? =>
     let ctx: SSLContext val =
       recover val
-        SSLContext .> set_max_proto_version(Tls1u3Version())?
+        SSLContext .> set_max_proto_version(TLS1u3Version())?
       end
 
     h.assert_eq[ILong](
-      Tls1u3Version().ilong(),
+      TLS1u3Version().ilong(),
       ctx.get_max_proto_version(),
       "a val receiver should read back the maximum that was set")
 
@@ -2420,8 +2420,8 @@ class \nodoc\ iso _TestSSLContextAllowTlsV1u2 is UnitTest
                 FilePath(auth, "assets/key.pem"))?
             .> set_client_verify(false)
             .> set_server_verify(false)
-            .> set_min_proto_version(Tls1u2Version())?
-            .> set_max_proto_version(Tls1u2Version())?
+            .> set_min_proto_version(TLS1u2Version())?
+            .> set_max_proto_version(TLS1u2Version())?
           if disable then ctx.allow_tls_v1_2(false) end
           if reenable then ctx.allow_tls_v1_2(true) end
           ctx
