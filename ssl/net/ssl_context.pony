@@ -27,6 +27,7 @@ use @CertOpenSystemStoreA[Pointer[U8] tag](prov: Pointer[U8] tag, protcol: Point
   if windows
 use @CertEnumCertificatesInStore[NullablePointer[_CertContext]](cert_store: Pointer[U8] tag,
   prev_ctx: NullablePointer[_CertContext]) if windows
+use @CertFreeCertificateContext[I32](cert_ctx: NullablePointer[_CertContext]) if windows
 use @d2i_X509[Pointer[X509] tag](val_out: Pointer[Pointer[X509]], der_in: Pointer[Pointer[U8]],
   length: ILong)
 use @X509_STORE_add_cert[I32](store: Pointer[U8] tag, x509: Pointer[X509] tag)
@@ -201,13 +202,17 @@ class val SSLContext
       if hStore.is_null() then error end
 
       let x509_store = @X509_STORE_new()
-      if x509_store.is_null() then error end
+      if x509_store.is_null() then
+        // The `try` below has not started, so its `then` clause will not close
+        // the store.
+        @CertCloseStore(hStore, U32(0))
+        error
+      end
+
+      var pContext = @CertEnumCertificatesInStore(
+        hStore, NullablePointer[_CertContext].none())
 
       try
-        var pContext: NullablePointer[_CertContext]
-        pContext =
-          @CertEnumCertificatesInStore(hStore, NullablePointer[_CertContext].none())
-
         while not pContext.is_none() do
           let cert_context = pContext()?
           let x509 = @d2i_X509(Pointer[Pointer[X509]],
@@ -224,6 +229,13 @@ class val SSLContext
 
         @SSL_CTX_set_cert_store(_ctx, x509_store)
       else
+        // `CertEnumCertificatesInStore` frees the context handed to it as
+        // `prev_ctx`, and returns none when the enumeration is done. Leaving
+        // the loop any other way leaves the last context it returned for the
+        // caller to free.
+        if not pContext.is_none() then
+          @CertFreeCertificateContext(pContext)
+        end
         @X509_STORE_free(x509_store)
       then
         @CertCloseStore(hStore, U32(0))
