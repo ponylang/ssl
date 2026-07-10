@@ -14,12 +14,11 @@ A call here gives back a correct result or it raises. It never gives back an
 incorrect one, so there is no value to check for and no sentinel to compare
 against.
 
-`Digest.append`, `Digest.final`, `HmacSha256`, `Pbkdf2Sha256` and `RandBytes`
-are partial. They raise when OpenSSL could not do what was asked of it.
-`HmacSha256`, `Pbkdf2Sha256` and `RandBytes` also raise when a length you gave
-them is larger than the C `int` OpenSSL takes for it. Constructing a `Digest`
-cannot fail; a context OpenSSL would not give you surfaces at the first
-`append` or `final`.
+The `Digest` constructors, `Digest.append`, `Digest.final`, `HmacSha256`,
+`Pbkdf2Sha256` and `RandBytes` are partial. They raise when OpenSSL could not
+do what was asked of it. Constructing a `Digest` raises when OpenSSL cannot
+give it a context. `HmacSha256`, `Pbkdf2Sha256` and `RandBytes` also raise when
+a length you gave them is larger than the C `int` OpenSSL takes for it.
 
 The one-shot hash functions and `ConstantTimeCompare` cannot fail and are total.
 
