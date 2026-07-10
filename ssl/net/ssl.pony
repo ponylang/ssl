@@ -8,8 +8,8 @@ use @SSL_ctrl[ILong](
 use @SSL_new[Pointer[_SSL]](ctx: Pointer[_SSLContext] tag)
 use @SSL_free[None](ssl: Pointer[_SSL] tag)
 use @SSL_set_verify[None](ssl: Pointer[_SSL], mode: I32, cb: Pointer[None])
-use @BIO_s_mem[Pointer[U8]]()
-use @BIO_new[Pointer[_BIO]](typ: Pointer[U8])
+use @BIO_s_mem[Pointer[_BIOMethod]]()
+use @BIO_new[Pointer[_BIO]](typ: Pointer[_BIOMethod])
 use @BIO_free[I32](bio: Pointer[_BIO] tag)
 use @SSL_set_bio[None](ssl: Pointer[_SSL], rbio: Pointer[_BIO] tag, wbio: Pointer[_BIO] tag)
 use @SSL_set_accept_state[None](ssl: Pointer[_SSL])
@@ -30,6 +30,7 @@ use @SSL_get1_peer_certificate[Pointer[X509]](ssl: Pointer[_SSL]) if "openssl_3.
 
 primitive _SSL
 primitive _BIO
+primitive _BIOMethod
 
 primitive SSLHandshake
   """

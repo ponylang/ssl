@@ -11,11 +11,11 @@ use @OPENSSL_sk_pop[Pointer[_GeneralName]](stack: Pointer[_GeneralNameStack])
   if "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x"
 use @sk_pop[Pointer[_GeneralName]](stack: Pointer[_GeneralNameStack])
   if "libressl"
-use @GENERAL_NAME_get0_value[Pointer[U8] tag](name: Pointer[_GeneralName],
-  ptype: Pointer[I32])
-use @ASN1_STRING_type[I32](value: Pointer[U8] tag)
-use @ASN1_STRING_get0_data[Pointer[U8]](value: Pointer[U8] tag)
-use @ASN1_STRING_length[I32](value: Pointer[U8] tag)
+use @GENERAL_NAME_get0_value[Pointer[_Asn1String] tag](
+  name: Pointer[_GeneralName], ptype: Pointer[I32])
+use @ASN1_STRING_type[I32](value: Pointer[_Asn1String] tag)
+use @ASN1_STRING_get0_data[Pointer[U8]](value: Pointer[_Asn1String] tag)
+use @ASN1_STRING_length[I32](value: Pointer[_Asn1String] tag)
 use @GENERAL_NAME_free[None](name: Pointer[_GeneralName])
 use @OPENSSL_sk_free[None](stack: Pointer[_GeneralNameStack])
   if "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x"
@@ -25,6 +25,7 @@ use @sk_free[None](stack: Pointer[_GeneralNameStack])
 primitive _X509Name
 primitive _GeneralName
 primitive _GeneralNameStack
+primitive _Asn1String
 
 primitive X509
   fun valid_for_host(cert: Pointer[X509], host: String): Bool =>
