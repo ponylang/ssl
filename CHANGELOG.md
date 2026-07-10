@@ -28,6 +28,7 @@ All notable changes to this project will be documented in this file. This projec
 - Require a val context for SSLContext.client and server ([PR #81](https://github.com/ponylang/ssl/pull/81))
 - Make Digest and HmacSha256 raise on failure ([PR #92](https://github.com/ponylang/ssl/pull/92))
 - Rename the SSL, TLS and DTLS version primitives ([PR #103](https://github.com/ponylang/ssl/pull/103))
+- Require a box receiver for ssl/crypto's apply methods ([PR #99](https://github.com/ponylang/ssl/pull/99))
 
 ## [2.1.0] - 2026-04-20
 
