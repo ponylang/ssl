@@ -17,6 +17,16 @@ permissions:
   packages: read
 
 jobs:
+  lint:
+    name: Lint Pony code
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/ponylang/shared-docker-ci-standard-builder:release
+    steps:
+      - uses: actions/checkout@v6.0.2
+      - name: Lint
+        run: make lint
+
   test-libressl-3-vs-ponyc-release:
     name: LibreSSL 3.x with most recent ponyc release
     runs-on: ubuntu-latest

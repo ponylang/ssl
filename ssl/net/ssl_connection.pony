@@ -65,6 +65,11 @@ class SSLConnection is TCPConnectionNotify
     ""
 
   fun ref sentv(conn: TCPConnection ref, data: ByteSeqIter): ByteSeqIter =>
+    """
+    Pass each sequence to the SSL session and check for both new application
+    data and new destination data. Returns an empty sequence: what leaves the
+    connection is the ciphertext `_poll` writes, not these bytes.
+    """
     let ret = recover val Array[ByteSeq] end
     let data' = _notify.sentv(conn, data)
     for bytes in data'.values() do

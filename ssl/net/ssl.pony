@@ -11,12 +11,18 @@ use @SSL_set_verify[None](ssl: Pointer[_SSL], mode: I32, cb: Pointer[None])
 use @BIO_s_mem[Pointer[_BIOMethod]]()
 use @BIO_new[Pointer[_BIO]](typ: Pointer[_BIOMethod])
 use @BIO_free[I32](bio: Pointer[_BIO] tag)
-use @SSL_set_bio[None](ssl: Pointer[_SSL], rbio: Pointer[_BIO] tag, wbio: Pointer[_BIO] tag)
+use @SSL_set_bio[None](
+  ssl: Pointer[_SSL],
+  rbio: Pointer[_BIO] tag,
+  wbio: Pointer[_BIO] tag)
 use @SSL_set_accept_state[None](ssl: Pointer[_SSL])
 use @SSL_set_connect_state[None](ssl: Pointer[_SSL])
 use @SSL_do_handshake[I32](ssl: Pointer[_SSL])
-use @SSL_get0_alpn_selected[None](ssl: Pointer[_SSL] tag, data: Pointer[Pointer[U8] iso],
-  len: Pointer[U32]) if "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl"
+use @SSL_get0_alpn_selected[None](
+  ssl: Pointer[_SSL] tag,
+  data: Pointer[Pointer[U8] iso],
+  len: Pointer[U32])
+  if "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl"
 use @SSL_pending[I32](ssl: Pointer[_SSL])
 use @SSL_read[I32](ssl: Pointer[_SSL], buf: Pointer[U8] tag, len: I32)
 use @SSL_write[I32](ssl: Pointer[_SSL], buf: Pointer[U8] tag, len: I32)
@@ -149,7 +155,9 @@ class SSL
 
     var ptr: Pointer[U8] iso = recover Pointer[U8] end
     var len = U32(0)
-    ifdef "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl" then
+    ifdef
+      "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl"
+    then
       @SSL_get0_alpn_selected(_ssl, addressof ptr, addressof len)
     else
       compile_error "You must select an SSL version to use."
@@ -177,15 +185,16 @@ class SSL
 
     let offset = _read_buf.size()
 
-    var len = if expect > 0 then
-      if offset >= expect then
-        return _read_buf = []
-      end
+    var len =
+      if expect > 0 then
+        if offset >= expect then
+          return _read_buf = []
+        end
 
-      expect - offset
-    else
-      1024
-    end
+        expect - offset
+      else
+        1024
+      end
 
     let max = if expect > 0 then expect - offset else USize.max_value() end
     let pending = @SSL_pending(_ssl).usize()
@@ -221,11 +230,12 @@ class SSL
       end
     end
 
-    let ready = if expect == 0 then
-      _read_buf.size() > 0
-    else
-      _read_buf.size() == expect
-    end
+    let ready =
+      if expect == 0 then
+        _read_buf.size() > 0
+      else
+        _read_buf.size() == expect
+      end
 
     if ready then
       _read_buf = []
@@ -236,6 +246,7 @@ class SSL
           read(expect)
         elseif @SSL_has_pending(_ssl) == 1 then
           // SSL has buffered data that BIO_ctrl_pending cannot see.
+          // pony-lint: allow style/line-length
           // https://mta.openssl.org/pipermail/openssl-users/2017-January/005110.html
           read(expect)
         end
@@ -339,13 +350,14 @@ class SSL
     Verify that the certificate is valid for the given hostname.
     """
     if _verify and (_hostname.size() > 0) then
-      let cert = ifdef "openssl_3.0.x" or "openssl_4.0.x" then
-        @SSL_get1_peer_certificate(_ssl)
-      elseif "openssl_1.1.x" or "libressl" then
-        @SSL_get_peer_certificate(_ssl)
-      else
-        compile_error "You must select an SSL version to use."
-      end
+      let cert =
+        ifdef "openssl_3.0.x" or "openssl_4.0.x" then
+          @SSL_get1_peer_certificate(_ssl)
+        elseif "openssl_1.1.x" or "libressl" then
+          @SSL_get_peer_certificate(_ssl)
+        else
+          compile_error "You must select an SSL version to use."
+        end
       let ok = X509.valid_for_host(cert, _hostname)
 
       if not cert.is_null() then

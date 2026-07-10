@@ -1,64 +1,46 @@
-use "net"
-
-interface ALPNProtocolNotify
-  fun ref alpn_negotiated(conn: TCPConnection, protocol: (String | None)): None
-
 type ALPNProtocolName is String val
+  """
+  The name of an application protocol, as it travels over the wire in the ALPN
+  extension. Between 1 and 255 bytes.
+  """
+
 primitive ALPNFatal
+  """
+  Select no protocol and fail the handshake. OpenSSL sends the peer a fatal
+  alert.
+  """
+
 primitive ALPNNoAck
+  """
+  Select no protocol and let the handshake finish. The connection carries no
+  negotiated protocol.
+  """
+
 primitive ALPNWarning
+  """
+  Select no protocol and let the handshake finish. OpenSSL sends the peer a
+  warning alert first.
+  """
 
 type ALPNMatchResult is (ALPNProtocolName | ALPNNoAck | ALPNWarning | ALPNFatal)
+  """
+  What an `ALPNProtocolResolver` gives back: the protocol it chose, or one of
+  the three ways to choose none.
+  """
+
 type _ALPNSelectCallback is @{(
-   Pointer[_SSL] tag,
-   Pointer[Pointer[U8] tag] tag,
-   Pointer[U8] tag,
-   Pointer[U8] box,
-   U32,
-   ALPNProtocolResolver val)
+  Pointer[_SSL] tag,
+  Pointer[Pointer[U8] tag] tag,
+  Pointer[U8] tag,
+  Pointer[U8] box,
+  U32,
+  ALPNProtocolResolver val)
   : I32}
 
-interface val ALPNProtocolResolver
-  """
-  Controls the protocol name to be chosen for incoming SSL connections using the
-  ALPN extension.
-
-  An implementation is `val`: a context shares the resolver across actors and
-  runs it from any of them, so it cannot depend on mutable state.
-  """
-  fun box resolve(advertised: Array[ALPNProtocolName] val): ALPNMatchResult
-    """
-    Choose a protocol from the ones the client advertised. Returning a name that
-    the client did not advertise fails the handshake.
-    """
-
-class val ALPNStandardProtocolResolver is ALPNProtocolResolver
-  """
-  Implements the standard protocol selection akin to the OpenSSL function `SSL_select_next_proto`.
-  """
-  let supported: Array[ALPNProtocolName] val
-  let use_client_as_fallback: Bool
-
-  new val create(
-    supported': Array[ALPNProtocolName] val,
-    use_client_as_fallback': Bool = true)
-  =>
-    supported = supported'
-    use_client_as_fallback = use_client_as_fallback'
-
-  fun box resolve(advertised: Array[ALPNProtocolName] val): ALPNMatchResult =>
-    for sup_proto in supported.values() do
-      for adv_proto in advertised.values() do
-        if sup_proto == adv_proto then return sup_proto end
-      end
-    end
-    if use_client_as_fallback then
-      try return advertised(0)? end
-    end
-
-    ALPNWarning
-
 primitive _ALPNMatchResultCode
+  """
+  The `SSL_TLSEXT_ERR_*` values an ALPN select callback returns to OpenSSL.
+  """
   fun ok(): I32 => 0
   fun warning(): I32 => 1
   fun fatal(): I32 => 2
@@ -137,8 +119,8 @@ primitive _ALPNProtocolList
         let final_protocol: String = buf = recover String end
         arr.push(final_protocol)
 
-        let hasNextChar = index < (protocol_list.size() - 1)
-        if hasNextChar then
+        let has_next_char = index < (protocol_list.size() - 1)
+        if has_next_char then
           remain = try protocol_list(index + 1)? else error end
           if remain == 0 then error end
           index = index + 1

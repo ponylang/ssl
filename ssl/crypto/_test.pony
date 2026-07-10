@@ -33,7 +33,9 @@ actor \nodoc\ Main is TestList
     test(Property1UnitTest[USize](_TestHmacSha256Deterministic))
     test(Property1UnitTest[USize](_TestRandBytesOutputLength))
     test(Property1UnitTest[USize](_TestRandBytesNonConstant))
-    ifdef "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl" then
+    ifdef
+      "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl"
+    then
       test(_TestPbkdf2Sha256Rfc7914)
       test(_TestPbkdf2Sha256Scram)
       test(Property1UnitTest[USize](_TestPbkdf2Sha256OutputLength))
@@ -66,7 +68,7 @@ class \nodoc\ iso _TestConstantTimeCompare is UnitTest
     let s2 = "54321"
     let s3 = "123456"
     let s4 = "1234"
-    let s5 = recover val [as U8: 0; 0; 0; 0; 0] end
+    let s5 = recover val [ as U8: 0; 0; 0; 0; 0] end
     let s6 = String.from_array([0; 0; 0; 0; 0])
     let s7 = ""
     h.assert_true(ConstantTimeCompare(s1, s1))
@@ -180,7 +182,7 @@ class \nodoc\ iso _TestDigest is UnitTest
     sha384.append("message1")?
     sha384.append("message2")?
     h.assert_eq[String](
-      "7736dd67494a7072bf255852bd327406b398cb0b16cb400fcd3fcfb6827d74ab"+
+      "7736dd67494a7072bf255852bd327406b398cb0b16cb400fcd3fcfb6827d74ab" +
       "9b14673d50515b6273ef15543325f8d3",
       ToHexString(sha384.final()?))
 
@@ -188,7 +190,7 @@ class \nodoc\ iso _TestDigest is UnitTest
     sha512.append("message1")?
     sha512.append("message2")?
     h.assert_eq[String](
-      "3511f4825021a90cd55d37db5c3250e6bbcffc9a0d56d88b4e2878ac5b094692"+
+      "3511f4825021a90cd55d37db5c3250e6bbcffc9a0d56d88b4e2878ac5b094692" +
       "cd945c6a77006272322f911c9be31fa970043daa4b61cee607566cbfa2c69b09",
       ToHexString(sha512.final()?))
 
@@ -356,12 +358,13 @@ class \nodoc\ iso _TestHmacSha256Rfc4231 is UnitTest
 
   fun apply(h: TestHelper) ? =>
     // Test Case 1: Key = 20 bytes of 0x0b, Data = "Hi There"
-    let key1 = recover val
-      let a = Array[U8].create(20)
-      var i: USize = 0
-      while i < 20 do a.push(0x0b); i = i + 1 end
-      a
-    end
+    let key1 =
+      recover val
+        let a = Array[U8].create(20)
+        var i: USize = 0
+        while i < 20 do a.push(0x0b); i = i + 1 end
+        a
+      end
     h.assert_eq[String](
       "b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7",
       ToHexString(HmacSha256(key1, "Hi There")?))
@@ -372,46 +375,51 @@ class \nodoc\ iso _TestHmacSha256Rfc4231 is UnitTest
       ToHexString(HmacSha256("Jefe", "what do ya want for nothing?")?))
 
     // Test Case 3: Key = 20 bytes of 0xaa, Data = 50 bytes of 0xdd
-    let key3 = recover val
-      let a = Array[U8].create(20)
-      var i: USize = 0
-      while i < 20 do a.push(0xaa); i = i + 1 end
-      a
-    end
-    let data3 = recover val
-      let a = Array[U8].create(50)
-      var i: USize = 0
-      while i < 50 do a.push(0xdd); i = i + 1 end
-      a
-    end
+    let key3 =
+      recover val
+        let a = Array[U8].create(20)
+        var i: USize = 0
+        while i < 20 do a.push(0xaa); i = i + 1 end
+        a
+      end
+    let data3 =
+      recover val
+        let a = Array[U8].create(50)
+        var i: USize = 0
+        while i < 50 do a.push(0xdd); i = i + 1 end
+        a
+      end
     h.assert_eq[String](
       "773ea91e36800e46854db8ebd09181a72959098b3ef8c122d9635514ced565fe",
       ToHexString(HmacSha256(key3, data3)?))
 
     // Test Case 4: Key = 0x01..0x19, Data = 50 bytes of 0xcd
-    let key4 = recover val
-      let a = Array[U8].create(25)
-      var i: U8 = 0x01
-      while i <= 0x19 do a.push(i); i = i + 1 end
-      a
-    end
-    let data4 = recover val
-      let a = Array[U8].create(50)
-      var i: USize = 0
-      while i < 50 do a.push(0xcd); i = i + 1 end
-      a
-    end
+    let key4 =
+      recover val
+        let a = Array[U8].create(25)
+        var i: U8 = 0x01
+        while i <= 0x19 do a.push(i); i = i + 1 end
+        a
+      end
+    let data4 =
+      recover val
+        let a = Array[U8].create(50)
+        var i: USize = 0
+        while i < 50 do a.push(0xcd); i = i + 1 end
+        a
+      end
     h.assert_eq[String](
       "82558a389a443c0ea4cc819899f2083a85f0faa3e578f8077a2e3ff46729665b",
       ToHexString(HmacSha256(key4, data4)?))
 
     // Test Case 5: Truncation to 128 bits
-    let key5 = recover val
-      let a = Array[U8].create(20)
-      var i: USize = 0
-      while i < 20 do a.push(0x0c); i = i + 1 end
-      a
-    end
+    let key5 =
+      recover val
+        let a = Array[U8].create(20)
+        var i: USize = 0
+        while i < 20 do a.push(0x0c); i = i + 1 end
+        a
+      end
     let hmac5 = HmacSha256(key5, "Test With Truncation")?
     h.assert_eq[String](
       "a3b6167473100ee06e0c796c2955552b",
@@ -426,24 +434,28 @@ class \nodoc\ iso _TestHmacSha256Rfc4231 is UnitTest
       end))
 
     // Test Case 6: Key = 131 bytes of 0xaa, large key
-    let key6 = recover val
-      let a = Array[U8].create(131)
-      var i: USize = 0
-      while i < 131 do a.push(0xaa); i = i + 1 end
-      a
-    end
+    let key6 =
+      recover val
+        let a = Array[U8].create(131)
+        var i: USize = 0
+        while i < 131 do a.push(0xaa); i = i + 1 end
+        a
+      end
     h.assert_eq[String](
       "60e431591ee0b67f0d8a26aacbf5b77f8e0bc6213728c5140546040f0ee37f54",
-      ToHexString(HmacSha256(key6,
-        "Test Using Larger Than Block-Size Key - Hash Key First")?))
+      ToHexString(
+        HmacSha256(
+          key6, "Test Using Larger Than Block-Size Key - Hash Key First")?))
 
     // Test Case 7: Key = 131 bytes of 0xaa, large key + large data
     h.assert_eq[String](
       "9b09ffa71b942fcb27635fbcd5b0e944bfdc63644f0713938a7f51535c3a35e2",
-      ToHexString(HmacSha256(key6,
-        "This is a test using a larger than block-size key and a larger " +
-        "than block-size data. The key needs to be hashed before being " +
-        "used by the HMAC algorithm.")?))
+      ToHexString(
+        HmacSha256(
+          key6,
+          "This is a test using a larger than block-size key and a larger " +
+          "than block-size data. The key needs to be hashed before being " +
+          "used by the HMAC algorithm.")?))
 
 class \nodoc\ iso _TestHmacSha256Scram is UnitTest
   """
@@ -455,12 +467,15 @@ class \nodoc\ iso _TestHmacSha256Scram is UnitTest
 
   fun apply(h: TestHelper) ? =>
     // SaltedPassword from PBKDF2("pencil", salt, 4096, 32)
-    let salted_password = recover val [as U8:
-      0xc4; 0xa4; 0x95; 0x10; 0x32; 0x3a; 0xb4; 0xf9
-      0x52; 0xca; 0xc1; 0xfa; 0x99; 0x44; 0x19; 0x39
-      0xe7; 0x8e; 0xa7; 0x4d; 0x6b; 0xe8; 0x1d; 0xdf
-      0x70; 0x96; 0xe8; 0x75; 0x13; 0xdc; 0x61; 0x5d
-    ] end
+    let salted_password =
+      recover val
+        [ as U8:
+          0xc4; 0xa4; 0x95; 0x10; 0x32; 0x3a; 0xb4; 0xf9
+          0x52; 0xca; 0xc1; 0xfa; 0x99; 0x44; 0x19; 0x39
+          0xe7; 0x8e; 0xa7; 0x4d; 0x6b; 0xe8; 0x1d; 0xdf
+          0x70; 0x96; 0xe8; 0x75; 0x13; 0xdc; 0x61; 0x5d
+        ]
+      end
 
     // HMAC(SaltedPassword, "Client Key")
     h.assert_eq[String](
@@ -479,7 +494,9 @@ class \nodoc\ iso _TestPbkdf2Sha256Rfc7914 is UnitTest
   fun name(): String => "crypto/Pbkdf2Sha256/RFC7914"
 
   fun apply(h: TestHelper) ? =>
-    ifdef "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl" then
+    ifdef
+      "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl"
+    then
       // Test Vector 1: Password "passwd", Salt "salt", c=1, dkLen=64
       h.assert_eq[String](
         "55ac046e56e3089fec1691c22544b605f94185216dde0465e68b9d57c20dacbc" +
@@ -502,12 +519,17 @@ class \nodoc\ iso _TestPbkdf2Sha256Scram is UnitTest
   fun name(): String => "crypto/Pbkdf2Sha256/SCRAM"
 
   fun apply(h: TestHelper) ? =>
-    ifdef "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl" then
+    ifdef
+      "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl"
+    then
       // Salt: decoded bytes of base64 "W22ZaJ0SNY7soEsUEjb6gQ=="
-      let salt = recover val [as U8:
-        0x5b; 0x6d; 0x99; 0x68; 0x9d; 0x12; 0x35; 0x8e
-        0xec; 0xa0; 0x4b; 0x14; 0x12; 0x36; 0xfa; 0x81
-      ] end
+      let salt =
+        recover val
+          [ as U8:
+            0x5b; 0x6d; 0x99; 0x68; 0x9d; 0x12; 0x35; 0x8e
+            0xec; 0xa0; 0x4b; 0x14; 0x12; 0x36; 0xfa; 0x81
+          ]
+        end
 
       h.assert_eq[String](
         "c4a49510323ab4f952cac1fa99441939e78ea74d6be81ddf7096e87513dc615d",
@@ -529,8 +551,6 @@ class \nodoc\ iso _TestRandBytes is UnitTest
     // 32 bytes
     let r32 = RandBytes(32)?
     h.assert_eq[USize](32, r32.size())
-
-// PonyCheck property tests
 
 class \nodoc\ iso _TestHmacSha256EmptyMessage is UnitTest
   """
@@ -633,7 +653,8 @@ class \nodoc\ iso _TestPbkdf2Sha256ArgumentsTooLarge is UnitTest
 
     try
       h.assert_eq[USize](
-        32, Pbkdf2Sha256("password", "salt", 4096, 32)?.size(),
+        32,
+        Pbkdf2Sha256("password", "salt", 4096, 32)?.size(),
         "sane arguments still work")
     else
       h.fail("Pbkdf2Sha256 should not raise on sane arguments")
@@ -668,9 +689,11 @@ class \nodoc\ iso _TestPbkdf2Sha256OutputLength is Property1[USize]
     Generators.usize(1, 128)
 
   fun ref property(sample: USize, h: PropertyHelper) ? =>
-    ifdef "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl" then
-      h.assert_eq[USize](sample,
-        Pbkdf2Sha256("p", "s", 1, sample)?.size())
+    ifdef
+      "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl"
+    then
+      h.assert_eq[USize](
+        sample, Pbkdf2Sha256("p", "s", 1, sample)?.size())
     end
 
 class \nodoc\ iso _TestPbkdf2Sha256Deterministic is Property1[USize]
@@ -680,7 +703,9 @@ class \nodoc\ iso _TestPbkdf2Sha256Deterministic is Property1[USize]
     Generators.usize(1, 64)
 
   fun ref property(sample: USize, h: PropertyHelper) ? =>
-    ifdef "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl" then
+    ifdef
+      "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl"
+    then
       h.assert_array_eq[U8](
         Pbkdf2Sha256("p", "s", 1, sample)?,
         Pbkdf2Sha256("p", "s", 1, sample)?)
@@ -787,8 +812,8 @@ class \nodoc\ iso _TestShake128XofPrefixSmall is Property1[USize]
       large.append("test input")?
       let large_result = large.final()?
 
-      h.assert_array_eq[U8](small_result,
-        large_result.trim(0, small_size))
+      h.assert_array_eq[U8](
+        small_result, large_result.trim(0, small_size))
 
       // The first 16 bytes of SHAKE128("test input"). The generator stops at
       // 15, so every size it produces is inside the anchor.
@@ -828,8 +853,8 @@ class \nodoc\ iso _TestShake128XofPrefix is Property1[USize]
       large.append("test input")?
       let large_result = large.final()?
 
-      h.assert_array_eq[U8](small_result,
-        large_result.trim(0, small_size))
+      h.assert_array_eq[U8](
+        small_result, large_result.trim(0, small_size))
 
       // KAT anchor: first 16 bytes of SHAKE128("test input").
       h.assert_eq[String](
@@ -863,8 +888,8 @@ class \nodoc\ iso _TestShake256XofPrefixSmall is Property1[USize]
       large.append("test input")?
       let large_result = large.final()?
 
-      h.assert_array_eq[U8](small_result,
-        large_result.trim(0, small_size))
+      h.assert_array_eq[U8](
+        small_result, large_result.trim(0, small_size))
 
       // The first 32 bytes of SHAKE256("test input"). The generator stops at
       // 31, so every size it produces is inside the anchor.
@@ -905,8 +930,8 @@ class \nodoc\ iso _TestShake256XofPrefix is Property1[USize]
       large.append("test input")?
       let large_result = large.final()?
 
-      h.assert_array_eq[U8](small_result,
-        large_result.trim(0, small_size))
+      h.assert_array_eq[U8](
+        small_result, large_result.trim(0, small_size))
 
       // KAT anchor: first 32 bytes of SHAKE256("test input").
       h.assert_eq[String](
@@ -1012,12 +1037,12 @@ class \nodoc\ iso _TestDigestConcatenation is Property2[USize, USize]
   fun ref property2(size1: USize, size2: USize, h: PropertyHelper) ? =>
     let part1 = recover val Array[U8].init(0xAA, size1) end
     let part2 = recover val Array[U8].init(0xBB, size2) end
-    let combined = recover val
-      let a = Array[U8](size1 + size2)
-      a.concat(part1.values())
-      a.concat(part2.values())
-      a
-    end
+    let combined =
+      recover val
+        Array[U8](size1 + size2)
+          .> concat(part1.values())
+          .> concat(part2.values())
+      end
 
     let d = Digest.sha256()?
     d.append(part1)?
@@ -1086,11 +1111,12 @@ class \nodoc\ iso _TestConstantTimeCompareSensitive
   fun ref property2(size: USize, hint: USize, h: PropertyHelper) ? =>
     let pos = hint % size
     let original = recover val Array[U8].init(0x42, size) end
-    let modified = recover val
-      let a = original.clone()
-      a(pos)? = a(pos)? xor 0xFF
-      a
-    end
+    let modified =
+      recover val
+        let a = original.clone()
+        a(pos)? = a(pos)? xor 0xFF
+        a
+      end
     h.assert_false(ConstantTimeCompare(original, modified))
 
 class \nodoc\ iso _TestToHexStringLength is Property1[USize]

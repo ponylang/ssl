@@ -34,6 +34,11 @@ actor Main
       Listener(consume sslctx, TCPConnectAuth(env.root), env.out, limit))
 
 class Listener is TCPListenNotify
+  """
+  Starts a client connecting back to the address it listens on: once when it
+  starts listening, and once more for every connection it accepts. Disposes
+  the listener after it has started `limit` of them.
+  """
   let _sslctx: SSLContext
   let _auth: TCPConnectAuth
   let _out: OutStream
@@ -102,6 +107,10 @@ class Listener is TCPListenNotify
     end
 
 class ServerSide is TCPConnectionNotify
+  """
+  The server end of a TLS connection. Greets the client once the handshake is
+  complete, prints what comes back, and closes the connection.
+  """
   let _out: OutStream
 
   new iso create(out: OutStream) =>
@@ -131,6 +140,10 @@ class ServerSide is TCPConnectionNotify
     _out.print("connect failed")
 
 class ClientSide is TCPConnectionNotify
+  """
+  The client end of a TLS connection. Greets the server once the handshake is
+  complete, and prints what the server sent.
+  """
   let _out: OutStream
 
   new iso create(out: OutStream) =>

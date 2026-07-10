@@ -14,53 +14,86 @@ use @TLS_method[Pointer[None]]() if "openssl_1.1.x" or "openssl_3.0.x" or "opens
 use @SSL_CTX_new[Pointer[_SSLContext]](method: Pointer[None])
 use @SSL_CTX_free[None](ctx: Pointer[_SSLContext] tag)
 use @SSL_CTX_clear_options[U64](ctx: Pointer[_SSLContext] tag, opts: U64) if "openssl_3.0.x" or "openssl_4.0.x"
-use @SSL_CTX_clear_options[ULong](ctx: Pointer[_SSLContext] tag, opts: ULong) if "openssl_1.1.x" and not ("openssl_3.0.x" or "openssl_4.0.x")
+use @SSL_CTX_clear_options[ULong](ctx: Pointer[_SSLContext] tag, opts: ULong)
+  if "openssl_1.1.x" and not ("openssl_3.0.x" or "openssl_4.0.x")
 use @SSL_CTX_set_options[U64](ctx: Pointer[_SSLContext] tag, opts: U64) if "openssl_3.0.x" or "openssl_4.0.x"
-use @SSL_CTX_set_options[ULong](ctx: Pointer[_SSLContext] tag, opts: ULong) if "openssl_1.1.x" and not ("openssl_3.0.x" or "openssl_4.0.x")
-use @SSL_CTX_use_certificate_chain_file[I32](ctx: Pointer[_SSLContext] tag, file: Pointer[U8] tag)
-use @SSL_CTX_use_PrivateKey_file[I32](ctx: Pointer[_SSLContext] tag, file: Pointer[U8] tag, typ: I32)
+use @SSL_CTX_set_options[ULong](ctx: Pointer[_SSLContext] tag, opts: ULong)
+  if "openssl_1.1.x" and not ("openssl_3.0.x" or "openssl_4.0.x")
+use @SSL_CTX_use_certificate_chain_file[I32](
+  ctx: Pointer[_SSLContext] tag,
+  file: Pointer[U8] tag)
+use @SSL_CTX_use_PrivateKey_file[I32](
+  ctx: Pointer[_SSLContext] tag,
+  file: Pointer[U8] tag,
+  typ: I32)
 use @SSL_CTX_check_private_key[I32](ctx: Pointer[_SSLContext] tag)
-use @SSL_CTX_load_verify_locations[I32](ctx: Pointer[_SSLContext] tag, ca_file: Pointer[U8] tag,
+use @SSL_CTX_load_verify_locations[I32](
+  ctx: Pointer[_SSLContext] tag,
+  ca_file: Pointer[U8] tag,
   ca_path: Pointer[U8] tag)
 use @X509_STORE_new[Pointer[_X509Store] tag]()
-use @CertOpenSystemStoreA[Pointer[_CertStore] tag](prov: Pointer[None], protocol: Pointer[U8] tag)
+use @CertOpenSystemStoreA[Pointer[_CertStore] tag](
+  prov: Pointer[None],
+  protocol: Pointer[U8] tag)
   if windows
-use @CertEnumCertificatesInStore[NullablePointer[_CertContext]](cert_store: Pointer[_CertStore] tag,
-  prev_ctx: NullablePointer[_CertContext]) if windows
-use @CertFreeCertificateContext[I32](cert_ctx: NullablePointer[_CertContext]) if windows
-use @d2i_X509[Pointer[X509] tag](val_out: Pointer[Pointer[X509]], der_in: Pointer[Pointer[U8]],
+use @CertEnumCertificatesInStore[NullablePointer[_CertContext]](
+  cert_store: Pointer[_CertStore] tag,
+  prev_ctx: NullablePointer[_CertContext])
+  if windows
+use @CertFreeCertificateContext[I32](cert_ctx: NullablePointer[_CertContext])
+  if windows
+use @d2i_X509[Pointer[X509] tag](
+  val_out: Pointer[Pointer[X509]],
+  der_in: Pointer[Pointer[U8]],
   length: ILong)
 use @X509_STORE_add_cert[I32](store: Pointer[_X509Store] tag,
   x509: Pointer[X509] tag)
 use @X509_free[None](x509: Pointer[X509] tag)
-use @SSL_CTX_set_cert_store[None](ctx: Pointer[_SSLContext] tag, store: Pointer[_X509Store] tag)
+use @SSL_CTX_set_cert_store[None](
+  ctx: Pointer[_SSLContext] tag,
+  store: Pointer[_X509Store] tag)
 use @X509_STORE_free[None](store: Pointer[_X509Store] tag)
-use @CertCloseStore[I32](store: Pointer[_CertStore] tag, flags: U32) if windows
-use @SSL_CTX_set_cipher_list[I32](ctx: Pointer[_SSLContext] tag, control: Pointer[U8] tag)
+use @CertCloseStore[I32](store: Pointer[_CertStore] tag, flags: U32)
+  if windows
+use @SSL_CTX_set_cipher_list[I32](
+  ctx: Pointer[_SSLContext] tag,
+  control: Pointer[U8] tag)
 use @SSL_CTX_set_verify_depth[None](ctx: Pointer[_SSLContext] tag, depth: I32)
-use @SSL_CTX_set_alpn_select_cb[None](ctx: Pointer[_SSLContext] tag, cb: _ALPNSelectCallback,
-   resolver: ALPNProtocolResolver val) if "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl"
-use @SSL_CTX_set_alpn_protos[I32](ctx: Pointer[_SSLContext] tag, protos: Pointer[U8] tag,
-  protos_len: U32) if "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl"
+use @SSL_CTX_set_alpn_select_cb[None](
+  ctx: Pointer[_SSLContext] tag,
+  cb: _ALPNSelectCallback,
+  resolver: ALPNProtocolResolver val)
+  if "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl"
+use @SSL_CTX_set_alpn_protos[I32](
+  ctx: Pointer[_SSLContext] tag,
+  protos: Pointer[U8] tag,
+  protos_len: U32)
+  if "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl"
 
 primitive _SSLContext
 primitive _X509Store
 primitive _CertStore
 
-primitive _SslCtrlSetOptions   fun val apply(): I32 => 32
-primitive _SslCtrlClearOptions fun val apply(): I32 => 77
+primitive _SSLCtrlSetOptions
+  fun val apply(): I32 => 32
 
-// These are the SSL_OP_NO_{SSL|TLS}vx{_x} in ssl.h.
-// Since Pony doesn't allow underscore we use camel case
-// and began them with underscore to keep them private.
-// Also, in the version strings the "v" becomes "V" and
-// the underscore "_" becomes "u". So SSL_OP_NO_TLSv1_2
-// _SslOpNo_TlsV1u2.
-primitive _SslOpNoTlsV1    fun val apply(): U64 => 0x04000000
-primitive _SslOpNoTlsV1u2  fun val apply(): U64 => 0x08000000
-primitive _SslOpNoTlsV1u1  fun val apply(): U64 => 0x10000000
-primitive _SslOpNoTlsV1u3  fun val apply(): U64 => 0x20000000
+primitive _SSLCtrlClearOptions
+  fun val apply(): I32 => 77
 
+// The SSL_OP_NO_{SSL,TLS}vX[_Y] options from ssl.h. A Pony type name takes no
+// underscores, so the `v` becomes `V` and the `_` becomes `u`:
+// SSL_OP_NO_TLSv1_2 is _SSLOpNoTLSV1u2.
+primitive _SSLOpNoTLSV1
+  fun val apply(): U64 => 0x04000000
+
+primitive _SSLOpNoTLSV1u2
+  fun val apply(): U64 => 0x08000000
+
+primitive _SSLOpNoTLSV1u1
+  fun val apply(): U64 => 0x10000000
+
+primitive _SSLOpNoTLSV1u3
+  fun val apply(): U64 => 0x20000000
 
 class val SSLContext
   """
@@ -77,7 +110,9 @@ class val SSLContext
     """
     Create an SSL context.
     """
-    ifdef "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl" then
+    ifdef
+      "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl"
+    then
       _ctx = @SSL_CTX_new(@TLS_method())
 
       // Allow only newer ciphers. These raise only if `SSL_CTX_new` failed,
@@ -96,7 +131,7 @@ class val SSLContext
     elseif "openssl_1.1.x" then
       @SSL_CTX_set_options(_ctx, opts.ulong())
     elseif "libressl" then
-      @SSL_CTX_ctrl(_ctx, _SslCtrlSetOptions(), opts.ilong(), Pointer[None])
+      @SSL_CTX_ctrl(_ctx, _SSLCtrlSetOptions(), opts.ilong(), Pointer[None])
     else
       compile_error "You must select an SSL version to use."
     end
@@ -107,7 +142,7 @@ class val SSLContext
     elseif "openssl_1.1.x" then
       @SSL_CTX_clear_options(_ctx, opts.ulong())
     elseif "libressl" then
-      @SSL_CTX_ctrl(_ctx, _SslCtrlClearOptions(), opts.ilong(), Pointer[None])
+      @SSL_CTX_ctrl(_ctx, _SSLCtrlClearOptions(), opts.ilong(), Pointer[None])
     else
       compile_error "You must select an SSL version to use."
     end
@@ -201,35 +236,38 @@ class val SSLContext
   fun ref _load_windows_root_certs() ? =>
     ifdef windows then
       let root_str = "ROOT"
-      let hStore = @CertOpenSystemStoreA(Pointer[None], root_str.cstring())
-      if hStore.is_null() then error end
+      let h_store = @CertOpenSystemStoreA(Pointer[None], root_str.cstring())
+      if h_store.is_null() then error end
 
       let x509_store = @X509_STORE_new()
       if x509_store.is_null() then
         // The `try` below has not started, so its `then` clause will not close
         // the store.
-        @CertCloseStore(hStore, U32(0))
+        @CertCloseStore(h_store, U32(0))
         error
       end
 
-      var pContext = @CertEnumCertificatesInStore(
-        hStore, NullablePointer[_CertContext].none())
+      var p_context =
+        @CertEnumCertificatesInStore(
+          h_store, NullablePointer[_CertContext].none())
 
       try
         while true do
           // `CertEnumCertificatesInStore` returns null when there is no next
-          // certificate, so a null `pContext` is the end of the enumeration.
-          let cert_context = try pContext()? else break end
-          let x509 = @d2i_X509(Pointer[Pointer[X509]],
-            addressof cert_context.pbCertEncoded,
-            cert_context.cbCertEncoded.ilong())
+          // certificate, so a null `p_context` is the end of the enumeration.
+          let cert_context = try p_context()? else break end
+          let x509 =
+            @d2i_X509(
+              Pointer[Pointer[X509]],
+              addressof cert_context.pb_cert_encoded,
+              cert_context.cb_cert_encoded.ilong())
           if not x509.is_null() then
             let result = @X509_STORE_add_cert(x509_store, x509)
             @X509_free(x509)
             if result != 1 then error end
           end
 
-          pContext = @CertEnumCertificatesInStore(hStore, pContext)
+          p_context = @CertEnumCertificatesInStore(h_store, p_context)
         end
 
         @SSL_CTX_set_cert_store(_ctx, x509_store)
@@ -238,12 +276,12 @@ class val SSLContext
         // `prev_ctx`, and returns none when the enumeration is done. Leaving
         // the loop any other way leaves the last context it returned for the
         // caller to free.
-        if not pContext.is_none() then
-          @CertFreeCertificateContext(pContext)
+        if not p_context.is_none() then
+          @CertFreeCertificateContext(p_context)
         end
         @X509_STORE_free(x509_store)
       then
-        @CertCloseStore(hStore, U32(0))
+        @CertCloseStore(h_store, U32(0))
       end
     end
 
@@ -297,7 +335,7 @@ class val SSLContext
 
     let result =
       @SSL_CTX_ctrl(
-        _ctx, _SslCtrlSetMinProtoVersion(), version.ilong(), Pointer[None])
+        _ctx, _SSLCtrlSetMinProtoVersion(), version.ilong(), Pointer[None])
     if result == 0 then
       error
     end
@@ -314,7 +352,7 @@ class val SSLContext
     """
     if _ctx.is_null() then return SSLAutoVersion().ilong() end
 
-    @SSL_CTX_ctrl(_ctx, _SslCtrlGetMinProtoVersion(), 0, Pointer[None])
+    @SSL_CTX_ctrl(_ctx, _SSLCtrlGetMinProtoVersion(), 0, Pointer[None])
 
   fun ref set_max_proto_version(version: ULong) ? =>
     """
@@ -330,7 +368,7 @@ class val SSLContext
 
     let result =
       @SSL_CTX_ctrl(
-        _ctx, _SslCtrlSetMaxProtoVersion(), version.ilong(), Pointer[None])
+        _ctx, _SSLCtrlSetMaxProtoVersion(), version.ilong(), Pointer[None])
     if result == 0 then
       error
     end
@@ -347,7 +385,7 @@ class val SSLContext
     """
     if _ctx.is_null() then return SSLAutoVersion().ilong() end
 
-    @SSL_CTX_ctrl(_ctx, _SslCtrlGetMaxProtoVersion(), 0, Pointer[None])
+    @SSL_CTX_ctrl(_ctx, _SSLCtrlGetMaxProtoVersion(), 0, Pointer[None])
 
   fun ref alpn_set_resolver(resolver: ALPNProtocolResolver val): Bool =>
     """
@@ -365,7 +403,9 @@ class val SSLContext
     """
     if _ctx.is_null() then return false end
 
-    ifdef "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl" then
+    ifdef
+      "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl"
+    then
       _alpn_resolver = resolver
       @SSL_CTX_set_alpn_select_cb(
         _ctx, addressof SSLContext._alpn_select_cb, resolver)
@@ -376,14 +416,18 @@ class val SSLContext
 
   fun ref alpn_set_client_protocols(protocols: Array[String] box): Bool =>
     """
-    Configures the SSLContext to advertise the protocol names defined in `protocols` when connecting to a server
-    protocol names must have a size of 1 to 255
+    Advertise the protocol names in `protocols` when connecting to a server.
+    Each name must be between 1 and 255 bytes.
 
-    Returns true on success. Returns false if the context has been disposed.
+    Returns true on success. Returns false if the context has been disposed,
+    if `protocols` is empty or holds a name of an unusable size, or if OpenSSL
+    would not take the list.
     """
     if _ctx.is_null() then return false end
 
-    ifdef "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl" then
+    ifdef
+      "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl"
+    then
       try
         let proto_list = _ALPNProtocolList.from_array(protocols)?
         let result =
@@ -445,9 +489,9 @@ class val SSLContext
     """
     if not _ctx.is_null() then
       if state then
-        _clear_options(_SslOpNoTlsV1())
+        _clear_options(_SSLOpNoTLSV1())
       else
-        _set_options(_SslOpNoTlsV1())
+        _set_options(_SSLOpNoTLSV1())
       end
     end
 
@@ -459,9 +503,9 @@ class val SSLContext
     """
     if not _ctx.is_null() then
       if state then
-        _clear_options(_SslOpNoTlsV1u1())
+        _clear_options(_SSLOpNoTLSV1u1())
       else
-        _set_options(_SslOpNoTlsV1u1())
+        _set_options(_SSLOpNoTLSV1u1())
       end
     end
 
@@ -473,9 +517,9 @@ class val SSLContext
     """
     if not _ctx.is_null() then
       if state then
-        _clear_options(_SslOpNoTlsV1u2())
+        _clear_options(_SSLOpNoTLSV1u2())
       else
-        _set_options(_SslOpNoTlsV1u2())
+        _set_options(_SSLOpNoTLSV1u2())
       end
     end
 
@@ -499,8 +543,12 @@ class val SSLContext
       @SSL_CTX_free(_ctx)
     end
 
-
 struct _CertContext
-  var dwCertEncodingType: U32 = 0
-  var pbCertEncoded: Pointer[U8] = Pointer[U8]
-  var cbCertEncoded: U32 = 0
+  """
+  The leading fields of Windows' `CERT_CONTEXT`, whose remaining fields nothing
+  here reads. `CertEnumCertificatesInStore` returns a pointer to one of these,
+  so the fields have to be declared in the order the C struct declares them.
+  """
+  var dw_cert_encoding_type: U32 = 0
+  var pb_cert_encoded: Pointer[U8] = Pointer[U8]
+  var cb_cert_encoded: U32 = 0
