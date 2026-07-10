@@ -74,4 +74,4 @@ all: test
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
 
-.PHONY: all clean TAGS test test-one
+.PHONY: all clean TAGS test test-one examples

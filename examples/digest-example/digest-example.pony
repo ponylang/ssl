@@ -4,8 +4,8 @@ use "../../ssl/crypto"
 
 actor Main
   new create(env: Env) =>
-    let sha256digest: Digest = Digest.sha256()?
     try
+      let sha256digest: Digest = Digest.sha256()?
       sha256digest.append("Hello ")?
       sha256digest.append("World")?
       let hash: Array[U8] val = sha256digest.final()?
@@ -16,8 +16,8 @@ actor Main
 
     // SHAKE256 with variable-length output (OpenSSL 3.0.x or 4.0.x)
     ifdef "openssl_3.0.x" or "openssl_4.0.x" then
-      let shake: Digest = Digest.shake256(64)?
       try
+        let shake: Digest = Digest.shake256(64)?
         shake.append("Hello ")?
         shake.append("World")?
         let shake_hash: Array[U8] val = shake.final()?
