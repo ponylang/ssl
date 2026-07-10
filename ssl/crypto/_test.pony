@@ -764,8 +764,9 @@ class \nodoc\ iso _TestShake128XofPrefixSmall is Property1[USize]
   """
   SHAKE128 prefix property at small output sizes (2..15 bytes). Exercises
   the truncation path where off-by-one partial-block bugs typically live.
-  No KAT anchor — sizes below 16 are guarded by _TestShake128XofPrefix
-  at larger sizes.
+
+  Both results are checked against a known answer as well. Prefix equality on
+  its own holds for an implementation that writes nothing.
   """
   fun name(): String => "crypto/Shake128/property/xof_prefix_small"
 
@@ -787,6 +788,16 @@ class \nodoc\ iso _TestShake128XofPrefixSmall is Property1[USize]
 
       h.assert_array_eq[U8](small_result,
         large_result.trim(0, small_size))
+
+      // The first 16 bytes of SHAKE128("test input"). The generator stops at
+      // 15, so every size it produces is inside the anchor.
+      let kat = "a9d2b0362d0e2e961eeb969ce9a42f2d"
+      h.assert_eq[String](
+        kat.substring(0, (small_size * 2).isize()),
+        ToHexString(small_result))
+      h.assert_eq[String](
+        kat.substring(0, (large_size * 2).isize()),
+        ToHexString(large_result))
     end
 
 class \nodoc\ iso _TestShake128XofPrefix is Property1[USize]
@@ -829,8 +840,9 @@ class \nodoc\ iso _TestShake256XofPrefixSmall is Property1[USize]
   """
   SHAKE256 prefix property at small output sizes (2..31 bytes). Exercises
   the truncation path where off-by-one partial-block bugs typically live.
-  No KAT anchor — sizes below 32 are guarded by _TestShake256XofPrefix
-  at larger sizes.
+
+  Both results are checked against a known answer as well. Prefix equality on
+  its own holds for an implementation that writes nothing.
   """
   fun name(): String => "crypto/Shake256/property/xof_prefix_small"
 
@@ -852,6 +864,17 @@ class \nodoc\ iso _TestShake256XofPrefixSmall is Property1[USize]
 
       h.assert_array_eq[U8](small_result,
         large_result.trim(0, small_size))
+
+      // The first 32 bytes of SHAKE256("test input"). The generator stops at
+      // 31, so every size it produces is inside the anchor.
+      let kat =
+        "e952d90136cb23413ff22b266e2f5dd42294a34bc311394b04863c039011f179"
+      h.assert_eq[String](
+        kat.substring(0, (small_size * 2).isize()),
+        ToHexString(small_result))
+      h.assert_eq[String](
+        kat.substring(0, (large_size * 2).isize()),
+        ToHexString(large_result))
     end
 
 class \nodoc\ iso _TestShake256XofPrefix is Property1[USize]
