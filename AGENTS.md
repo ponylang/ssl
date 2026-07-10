@@ -31,9 +31,15 @@ Always use `make` rather than running `ponyc` directly. The Makefile uses `corra
 ```
 make test config=debug ssl=<version>
 make test-one t=TestName ssl=3.0.x  # run a single test by name
+make lint                           # pony-lint the sources; no ssl= needed
 ```
 
-SSL version is **required**. Valid values:
+`make lint` runs `pony-lint` over `ssl` and `examples`. It needs no `ssl=`,
+because the linter is text-based and does not compile. CI runs it as its own
+job. `examples/.pony-lint.json` turns off `style/package-docstring` there — an
+example program has no package file to hang a docstring on.
+
+SSL version is **required** for building and testing. Valid values:
 
 | `ssl=` value | Define passed to ponyc | Backend |
 |---|---|---|
@@ -120,6 +126,9 @@ Public Pony signatures do not have to match the C types. Convert at the FFI call
 | `ssl/net/_ssl_init.pony` | SSL library initialization (threading model differs by version) |
 | `ssl/net/ssl_context.pony` | Context management, ALPN setup, TLS version control |
 | `ssl/net/ssl.pony` | SSL session — handshake, read/write, certificate verification |
+| `ssl/net/alpn_protocol_notify.pony` | `ALPNProtocolNotify` interface for learning the negotiated protocol |
+| `ssl/net/alpn_protocol_resolver.pony` | `ALPNProtocolResolver` interface and the standard resolver |
+| `ssl/net/alpn.pony` | ALPN wire types, match-result codes, and protocol-list encoding |
 | `ssl/net/x509.pony` | Certificate name extraction and hostname matching |
 | `ssl/crypto/digest.pony` | Hash digests (MD5, SHA family, SHAKE) via EVP API |
 | `ssl/crypto/hmac_sha256.pony` | HMAC-SHA-256 message authentication (RFC 2104) |

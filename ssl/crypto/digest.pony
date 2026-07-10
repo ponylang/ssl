@@ -3,12 +3,27 @@ use "path:/opt/homebrew/opt/libressl/lib" if osx and arm
 use "lib:crypto"
 use "lib:bcrypt" if windows
 
-use @EVP_MD_CTX_new[Pointer[_EVPCTX]]() if "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl"
-use @EVP_DigestInit_ex[I32](ctx: Pointer[_EVPCTX] tag, t: Pointer[_EVPMD], impl: Pointer[None])
-use @EVP_DigestUpdate[I32](ctx: Pointer[_EVPCTX] tag, d: Pointer[U8] tag, cnt: USize)
-use @EVP_DigestFinal_ex[I32](ctx: Pointer[_EVPCTX] tag, md: Pointer[U8] tag, s: Pointer[U32])
-use @EVP_DigestFinalXOF[I32](ctx: Pointer[_EVPCTX] tag, md: Pointer[U8] tag, len: USize) if "openssl_3.0.x" or "openssl_4.0.x"
-use @EVP_MD_CTX_free[None](ctx: Pointer[_EVPCTX] tag) if "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl"
+use @EVP_MD_CTX_new[Pointer[_EVPCTX]]()
+  if "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl"
+use @EVP_DigestInit_ex[I32](
+  ctx: Pointer[_EVPCTX] tag,
+  t: Pointer[_EVPMD],
+  impl: Pointer[None])
+use @EVP_DigestUpdate[I32](
+  ctx: Pointer[_EVPCTX] tag,
+  d: Pointer[U8] tag,
+  cnt: USize)
+use @EVP_DigestFinal_ex[I32](
+  ctx: Pointer[_EVPCTX] tag,
+  md: Pointer[U8] tag,
+  s: Pointer[U32])
+use @EVP_DigestFinalXOF[I32](
+  ctx: Pointer[_EVPCTX] tag,
+  md: Pointer[U8] tag,
+  len: USize)
+  if "openssl_3.0.x" or "openssl_4.0.x"
+use @EVP_MD_CTX_free[None](ctx: Pointer[_EVPCTX] tag)
+  if "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl"
 
 use @EVP_md5[Pointer[_EVPMD]]()
 use @EVP_ripemd160[Pointer[_EVPMD]]()
@@ -31,7 +46,9 @@ primitive _EVPContext
     This is the only place a `Digest` allocates a context, so a `_ctx` is an
     initialised and usable one everywhere else.
     """
-    ifdef "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl" then
+    ifdef
+      "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl"
+    then
       let ctx = @EVP_MD_CTX_new()
       if ctx.is_null() then error end
 
@@ -135,7 +152,7 @@ class Digest
       end
       _ctx = _EVPContext(@EVP_shake128())?
     else
-      compile_error "shake128 is only supported with OpenSSL 1.1.x, 3.0.x, or 4.0.x"
+      compile_error "shake128 needs OpenSSL 1.1.x, 3.0.x or 4.0.x"
     end
 
   new shake256(size': USize = 32) ? =>
@@ -157,7 +174,7 @@ class Digest
       end
       _ctx = _EVPContext(@EVP_shake256())?
     else
-      compile_error "shake256 is only supported with OpenSSL 1.1.x, 3.0.x, or 4.0.x"
+      compile_error "shake256 needs OpenSSL 1.1.x, 3.0.x or 4.0.x"
     end
 
   fun ref append(input: ByteSeq) ? =>
@@ -205,7 +222,9 @@ class Digest
         compile_error "You must select an SSL version to use."
       end
 
-      ifdef "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl" then
+      ifdef
+        "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl"
+      then
         @EVP_MD_CTX_free(_ctx)
       else
         compile_error "You must select an SSL version to use."
@@ -227,7 +246,9 @@ class Digest
     Free the context of a digest that was dropped without a call to `final()`.
     """
     if not _ctx.is_null() then
-      ifdef "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl" then
+      ifdef
+        "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl"
+      then
         @EVP_MD_CTX_free(_ctx)
       else
         compile_error "You must select an SSL version to use."

@@ -5,6 +5,7 @@ GET_DEPENDENCIES_WITH := corral fetch
 CLEAN_DEPENDENCIES_WITH := corral clean
 COMPILE_WITH := corral run -- ponyc
 BUILD_DOCS_WITH := corral run -- pony-doc
+LINT_WITH := pony-lint
 
 BUILD_DIR ?= build/$(config)
 SRC_DIR ?= $(PACKAGE)
@@ -23,7 +24,7 @@ else
 	PONYC = ${COMPILE_WITH} --debug
 endif
 
-ifeq (,$(filter $(MAKECMDGOALS),clean docs realclean TAGS))
+ifeq (,$(filter $(MAKECMDGOALS),clean docs realclean TAGS lint))
   ifeq ($(ssl), 4.0.x)
 	  SSL = -Dopenssl_4.0.x
   else ifeq ($(ssl), 3.0.x)
@@ -55,6 +56,9 @@ examples:
 	${GET_DEPENDENCIES_WITH}
 	find examples/*/* -name '*.pony' -print | xargs -n 1 dirname  | sort -u | grep -v ffi- | xargs -n 1 -I {} ${PONYC} ${SSL} -s --checktree -o ${BUILD_DIR} {}
 
+lint:
+	${LINT_WITH} $(SRC_DIR) examples
+
 clean:
 	corral clean
 	rm -rf $(BUILD_DIR)
@@ -74,4 +78,4 @@ all: test
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
 
-.PHONY: all clean TAGS test test-one examples
+.PHONY: all clean TAGS test test-one examples lint

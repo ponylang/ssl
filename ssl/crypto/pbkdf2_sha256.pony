@@ -6,7 +6,8 @@ use @PKCS5_PBKDF2_HMAC[I32](
   pass: Pointer[U8] tag, passlen: I32,
   salt: Pointer[U8] tag, saltlen: I32, iter: I32,
   digest: Pointer[_EVPMD],
-  keylen: I32, out: Pointer[U8] tag) if "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl"
+  keylen: I32, out: Pointer[U8] tag)
+  if "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl"
 
 primitive Pbkdf2Sha256
   """
@@ -22,8 +23,12 @@ primitive Pbkdf2Sha256
   let key = Pbkdf2Sha256("password", "salt", 4096, 32)?
   ```
   """
-  fun apply(password: ByteSeq, salt: ByteSeq, iterations: U32,
-    key_length: USize): Array[U8] val ?
+  fun apply(
+    password: ByteSeq,
+    salt: ByteSeq,
+    iterations: U32,
+    key_length: USize)
+    : Array[U8] val ?
   =>
     // `PKCS5_PBKDF2_HMAC` takes an `int` for the iteration count and for each
     // length. A value that does not fit one narrows, and the backends do not
@@ -38,16 +43,21 @@ primitive Pbkdf2Sha256
       error
     end
 
-    ifdef "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl" then
+    ifdef
+      "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl"
+    then
       recover
         let arr = Array[U8].init(0, key_length)
-        let rc = @PKCS5_PBKDF2_HMAC(
-          password.cpointer(), password.size().i32(),
-          salt.cpointer(), salt.size().i32(),
-          iterations.i32(),
-          @EVP_sha256(),
-          key_length.i32(),
-          arr.cpointer())
+        let rc =
+          @PKCS5_PBKDF2_HMAC(
+            password.cpointer(),
+            password.size().i32(),
+            salt.cpointer(),
+            salt.size().i32(),
+            iterations.i32(),
+            @EVP_sha256(),
+            key_length.i32(),
+            arr.cpointer())
         if rc != 1 then error end
         arr
       end

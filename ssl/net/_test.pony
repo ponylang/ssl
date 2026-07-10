@@ -16,7 +16,8 @@ actor \nodoc\ Main is TestList
     test(_TestALPNProtocolListEncoding)
     test(_TestALPNProtocolListDecode)
     test(_TestALPNProtocolListOffsetOf)
-    test(Property1UnitTest[Array[String]](_TestALPNProtocolListOffsetOfRoundtrip))
+    test(Property1UnitTest[Array[String]](
+      _TestALPNProtocolListOffsetOfRoundtrip))
     test(_TestALPNStandardProtocolResolver)
     test(_TestSSLHandshakeInMemory)
     test(_TestSSLDisposeBeforeHandshake)
@@ -48,8 +49,8 @@ actor \nodoc\ Main is TestList
     test(_TestSSLContextSetCertAfterDispose)
     test(_TestSSLContextSetCiphersAfterDispose)
     test(_TestSSLContextSetVerifyDepthAfterDispose)
-    test(_TestSSLContextAllowTlsAfterDispose)
-    test(_TestSSLContextAllowTlsV1u2)
+    test(_TestSSLContextAllowTLSAfterDispose)
+    test(_TestSSLContextAllowTLSV1u2)
     test(_TestSSLContextClientAfterDispose)
     test(_TestSSLContextServerAfterDispose)
     test(_TestTCPSSLWritev)
@@ -74,7 +75,8 @@ actor \nodoc\ Main is TestList
 
 class \nodoc\ iso _TestALPNProtocolListEncoding is UnitTest
   """
-  [Protocol Lists]() are correctly encoded and errors are raised when trying to encode invalid identifiers
+  `from_array` packs protocol names into a protocol name list, and raises on a
+  name whose size is outside 1..255.
   """
   fun name(): String => "net/ssl/_ALPNProtocolList.from_array"
 
@@ -123,10 +125,12 @@ class \nodoc\ iso _TestALPNProtocolListOffsetOf is UnitTest
 
     try
       h.assert_eq[USize](
-        1, _ALPNProtocolList.offset_of(h2_http11, "h2")?,
+        1,
+        _ALPNProtocolList.offset_of(h2_http11, "h2")?,
         "h2 starts one byte past its length prefix")
       h.assert_eq[USize](
-        4, _ALPNProtocolList.offset_of(h2_http11, "http/1.1")?,
+        4,
+        _ALPNProtocolList.offset_of(h2_http11, "http/1.1")?,
         "http/1.1 starts after h2 and its own length prefix")
     else
       h.fail("failed to find a name that is in the list")
@@ -149,7 +153,8 @@ class \nodoc\ iso _TestALPNProtocolListOffsetOf is UnitTest
     // offset has to be the name's, not the first place the bytes turn up.
     try
       h.assert_eq[USize](
-        5, _ALPNProtocolList.offset_of("\x03h2c\x02h2", "h2")?,
+        5,
+        _ALPNProtocolList.offset_of("\x03h2c\x02h2", "h2")?,
         "a name that a longer name contains is found at its own offset")
     else
       h.fail("failed to find h2 past a longer name containing it")
@@ -157,7 +162,8 @@ class \nodoc\ iso _TestALPNProtocolListOffsetOf is UnitTest
 
     try
       h.assert_eq[USize](
-        1, _ALPNProtocolList.offset_of("\x02h2\x02h2", "h2")?,
+        1,
+        _ALPNProtocolList.offset_of("\x02h2\x02h2", "h2")?,
         "a repeated name is found at the first of its offsets")
     else
       h.fail("failed to find a repeated name")
@@ -173,10 +179,11 @@ class \nodoc\ iso _TestALPNProtocolListOffsetOf is UnitTest
       {()? => _ALPNProtocolList.offset_of("\x00", "")? },
       "raise on a zero length prefix")
 
-class \nodoc\ iso _TestALPNProtocolListOffsetOfRoundtrip is Property1[Array[String]]
+class \nodoc\ iso _TestALPNProtocolListOffsetOfRoundtrip
+  is Property1[Array[String]]
   """
-  Every name `from_array` packs into a list is found by `offset_of`, at an offset
-  whose bytes are that name.
+  Every name `from_array` packs into a list is found by `offset_of`, at an
+  offset whose bytes are that name.
   """
   fun name(): String => "net/ssl/_ALPNProtocolList.offset_of/property/roundtrip"
 
@@ -194,7 +201,8 @@ class \nodoc\ iso _TestALPNProtocolListOffsetOfRoundtrip is Property1[Array[Stri
       // the start of a name and not somewhere in the middle of one, which is
       // the only way `offset_of` can be wrong while still matching the bytes.
       h.assert_eq[USize](
-        protocol.size(), USize.from[U8](list(offset - 1)?),
+        protocol.size(),
+        USize.from[U8](list(offset - 1)?),
         "the byte before the offset should be the name's length")
       h.assert_true(
         list.at(protocol, offset.isize()),
@@ -292,7 +300,8 @@ class \nodoc\ iso _TestTCPSSLExpect is UnitTest
       end
 
     _TestTCP(h)(
-      SSLConnection(_TestTCPExpectNotify(h, false), consume ssl_client), SSLConnection(_TestTCPExpectNotify(h, true), consume ssl_server))
+      SSLConnection(_TestTCPExpectNotify(h, false), consume ssl_client),
+      SSLConnection(_TestTCPExpectNotify(h, true), consume ssl_server))
 
 class \nodoc\ iso _TestTCPSSLWritev is UnitTest
   """
@@ -314,7 +323,8 @@ class \nodoc\ iso _TestTCPSSLWritev is UnitTest
       end
 
     _TestTCP(h)(
-      SSLConnection(_TestTCPWritevNotifyClient(h), consume ssl_client), SSLConnection(_TestTCPWritevNotifyServer(h), consume ssl_server))
+      SSLConnection(_TestTCPWritevNotifyClient(h), consume ssl_client),
+      SSLConnection(_TestTCPWritevNotifyServer(h), consume ssl_server))
 
 class \nodoc\ iso _TestTCPSSLMute is UnitTest
   """
@@ -542,7 +552,8 @@ class \nodoc\ iso _TestTCPSSLPeerCertificateVerify is UnitTest
         _TestTCPSSLPeerCertificateVerifyServerNotify(h),
         consume ssl_server))
 
-class \nodoc\ _TestTCPSSLPeerCertificateVerifyClientNotify is TCPConnectionNotify
+class \nodoc\ _TestTCPSSLPeerCertificateVerifyClientNotify
+  is TCPConnectionNotify
   let _h: TestHelper
 
   new iso create(h: TestHelper) =>
@@ -558,7 +569,8 @@ class \nodoc\ _TestTCPSSLPeerCertificateVerifyClientNotify is TCPConnectionNotif
   fun ref auth_failed(conn: TCPConnection ref) =>
     _h.fail("hostname verification should have succeeded")
 
-class \nodoc\ _TestTCPSSLPeerCertificateVerifyServerNotify is TCPConnectionNotify
+class \nodoc\ _TestTCPSSLPeerCertificateVerifyServerNotify
+  is TCPConnectionNotify
   let _h: TestHelper
 
   new iso create(h: TestHelper) =>
@@ -713,11 +725,12 @@ class \nodoc\ iso _TestWindowsLoadRootCertificates is UnitTest
       let ssl_ctx =
         recover val
           SSLContext
-            .>set_authority(None, None)?
-            .>set_cert(FilePath(auth, "assets/cert.pem"),
+            .> set_authority(None, None)?
+            .> set_cert(
+              FilePath(auth, "assets/cert.pem"),
               FilePath(auth, "assets/key.pem"))?
-            .>set_client_verify(false)
-            .>set_server_verify(false)
+            .> set_client_verify(false)
+            .> set_server_verify(false)
         end
 
       let ssl_client = ssl_ctx.client()?
@@ -822,7 +835,6 @@ class \nodoc\ _TestTCPMuteReceiveNotify is TCPConnectionNotify
   fun ref connect_failed(conn: TCPConnection ref) =>
     _h.fail_action("receiver connect failed")
 
-
 class \nodoc\ _TestTCPMuteSendNotify is TCPConnectionNotify
   """
   Notifier that sends data back when it receives any. Used in conjunction with
@@ -843,15 +855,15 @@ class \nodoc\ _TestTCPMuteSendNotify is TCPConnectionNotify
   fun ref connect_failed(conn: TCPConnection ref) =>
     _h.fail_action("sender connect failed")
 
-   fun ref received(
+  fun ref received(
     conn: TCPConnection ref,
     data: Array[U8] val,
     times: USize)
     : Bool
-   =>
-     conn.write("it's sad that you won't ever read this")
-     _h.complete_action("sender sent data")
-     true
+  =>
+    conn.write("it's sad that you won't ever read this")
+    _h.complete_action("sender sent data")
+    true
 
 class \nodoc\ _TestTCPExpectNotify is TCPConnectionNotify
   let _h: TestHelper
@@ -1222,7 +1234,7 @@ class \nodoc\ iso _TestSSLHandshakeInMemory is UnitTest
       return
     end
 
-    match server.read()
+    match \exhaustive\ server.read()
     | let data: Array[U8] iso =>
       h.assert_eq[String]("hello", String.from_array(consume data))
     | None =>
@@ -1559,7 +1571,7 @@ class \nodoc\ iso _TestSSLALPNSelectedAfterDispose is UnitTest
         return
       end
 
-    match client.alpn_selected()
+    match \exhaustive\ client.alpn_selected()
     | let protocol: ALPNProtocolName =>
       h.assert_eq[String]("h2", protocol)
     | None =>
@@ -1650,8 +1662,8 @@ class \nodoc\ iso _TestSSLContextALPNFallbackToClientProtocol is UnitTest
   The pointer moving is not observable from here. Every supported backend copies
   the bytes out of `*out` inside the callback's own C frame, so the pointer the
   callback handed over before this change was still live when it was read. What
-  this drives is the path, and what it pins is that the fallback still negotiates
-  once the pointer points into the client's buffer.
+  this drives is the path, and what it pins is that the fallback still
+  negotiates once the pointer points into the client's buffer.
   """
   fun name(): String =>
     "net/ssl/SSLContext.alpn_set_resolver/fallback_to_client_protocol"
@@ -1660,7 +1672,7 @@ class \nodoc\ iso _TestSSLContextALPNFallbackToClientProtocol is UnitTest
     let ctx = _TestALPNContext(h, ALPNStandardProtocolResolver(["spdy/1"]))?
     (let client, let server) = _TestSSLSessionPair.from_context(h, ctx)?
 
-    match client.alpn_selected()
+    match \exhaustive\ client.alpn_selected()
     | let protocol: ALPNProtocolName =>
       h.assert_eq[String](
         "h2", protocol, "the client's own protocol should be selected")
@@ -1800,7 +1812,7 @@ actor \nodoc\ _TestALPNResolverContextRooting
     end
 
     let ctx =
-      match _ctx
+      match \exhaustive\ _ctx
       | let c: SSLContext val => c
       | None =>
         _h.fail("the context was never created")
@@ -1816,7 +1828,7 @@ actor \nodoc\ _TestALPNResolverContextRooting
         return
       end
 
-    match client.alpn_selected()
+    match \exhaustive\ client.alpn_selected()
     | let protocol: ALPNProtocolName =>
       _h.assert_eq[String]("h2", protocol)
     | None =>
@@ -1886,7 +1898,7 @@ actor \nodoc\ _TestALPNResolverSessionRooting
       return
     end
 
-    match client.alpn_selected()
+    match \exhaustive\ client.alpn_selected()
     | let protocol: ALPNProtocolName =>
       _h.assert_eq[String]("h2", protocol)
     | None =>
@@ -2342,7 +2354,7 @@ class \nodoc\ iso _TestSSLContextSetVerifyDepthAfterDispose is UnitTest
       ctx.alpn_set_client_protocols(["h2"]),
       "the context should still be disposed")
 
-class \nodoc\ iso _TestSSLContextAllowTlsAfterDispose is UnitTest
+class \nodoc\ iso _TestSSLContextAllowTLSAfterDispose is UnitTest
   """
   `allow_tls_v1`, `allow_tls_v1_1` and `allow_tls_v1_2` on a disposed context do
   nothing. This locks in guards the disposed context already had.
@@ -2375,7 +2387,7 @@ class \nodoc\ iso _TestSSLContextAllowTlsAfterDispose is UnitTest
       ctx.alpn_set_client_protocols(["h2"]),
       "the context should still be disposed")
 
-class \nodoc\ iso _TestSSLContextAllowTlsV1u2 is UnitTest
+class \nodoc\ iso _TestSSLContextAllowTLSV1u2 is UnitTest
   """
   `allow_tls_v1_2` takes effect on a live context.
 

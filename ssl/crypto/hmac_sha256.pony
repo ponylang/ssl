@@ -38,8 +38,15 @@ primitive HmacSha256
       let message =
         if data.size() == 0 then arr.cpointer() else data.cpointer() end
 
-      let md = @HMAC(@EVP_sha256(), key.cpointer(), key.size().i32(),
-        message, data.size(), arr.cpointer(), Pointer[U32])
+      let md =
+        @HMAC(
+          @EVP_sha256(),
+          key.cpointer(),
+          key.size().i32(),
+          message,
+          data.size(),
+          arr.cpointer(),
+          Pointer[U32])
 
       // `HMAC` writes nothing when it fails, and `arr` is 32 zero bytes, which
       // is a code an attacker can send. Raise rather than return it.

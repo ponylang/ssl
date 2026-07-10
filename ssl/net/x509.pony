@@ -28,6 +28,11 @@ primitive _GeneralNameStack
 primitive _Asn1String
 
 primitive X509
+  """
+  Reads the names an OpenSSL X509 certificate is valid for, and matches a host
+  against them. `Pointer[X509]` stands in for the C `X509 *`; the primitive
+  itself holds nothing.
+  """
   fun valid_for_host(cert: Pointer[X509], host: String): Bool =>
     """
     Checks if an OpenSSL X509 certificate is valid for a given host.
