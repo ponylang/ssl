@@ -17,10 +17,10 @@ interface HashFn
   """
   Produces a fixed-length byte array based on the input sequence.
   """
-  fun tag apply(input: ByteSeq): Array[U8] val
+  fun apply(input: ByteSeq): Array[U8] val
 
 primitive MD4 is HashFn
-  fun tag apply(input: ByteSeq): Array[U8] val =>
+  fun apply(input: ByteSeq): Array[U8] val =>
     """
     Compute the MD4 message digest conforming to RFC 1320
     """
@@ -32,7 +32,7 @@ primitive MD4 is HashFn
     end
 
 primitive MD5 is HashFn
-  fun tag apply(input: ByteSeq): Array[U8] val =>
+  fun apply(input: ByteSeq): Array[U8] val =>
     """
     Compute the MD5 message digest conforming to RFC 1321
     """
@@ -44,7 +44,7 @@ primitive MD5 is HashFn
     end
 
 primitive RIPEMD160 is HashFn
-  fun tag apply(input: ByteSeq): Array[U8] val =>
+  fun apply(input: ByteSeq): Array[U8] val =>
     """
     Compute the RIPEMD160 message digest conforming to ISO/IEC 10118-3
     """
@@ -56,7 +56,7 @@ primitive RIPEMD160 is HashFn
     end
 
 primitive SHA1 is HashFn
-  fun tag apply(input: ByteSeq): Array[U8] val =>
+  fun apply(input: ByteSeq): Array[U8] val =>
     """
     Compute the SHA1 message digest conforming to US Federal Information
     Processing Standard FIPS PUB 180-4
@@ -69,7 +69,7 @@ primitive SHA1 is HashFn
     end
 
 primitive SHA224 is HashFn
-  fun tag apply(input: ByteSeq): Array[U8] val =>
+  fun apply(input: ByteSeq): Array[U8] val =>
     """
     Compute the SHA224 message digest conforming to US Federal Information
     Processing Standard FIPS PUB 180-4
@@ -82,7 +82,7 @@ primitive SHA224 is HashFn
     end
 
 primitive SHA256 is HashFn
-  fun tag apply(input: ByteSeq): Array[U8] val =>
+  fun apply(input: ByteSeq): Array[U8] val =>
     """
     Compute the SHA256 message digest conforming to US Federal Information
     Processing Standard FIPS PUB 180-4
@@ -95,7 +95,7 @@ primitive SHA256 is HashFn
     end
 
 primitive SHA384 is HashFn
-  fun tag apply(input: ByteSeq): Array[U8] val =>
+  fun apply(input: ByteSeq): Array[U8] val =>
     """
     Compute the SHA384 message digest conforming to US Federal Information
     Processing Standard FIPS PUB 180-4
@@ -108,7 +108,7 @@ primitive SHA384 is HashFn
     end
 
 primitive SHA512 is HashFn
-  fun tag apply(input: ByteSeq): Array[U8] val =>
+  fun apply(input: ByteSeq): Array[U8] val =>
     """
     Compute the SHA512 message digest conforming to US Federal Information
     Processing Standard FIPS PUB 180-4
@@ -121,7 +121,7 @@ primitive SHA512 is HashFn
     end
 
 primitive ToHexString
-  fun tag apply(bs: Array[U8] val): String =>
+  fun apply(bs: Array[U8] val): String =>
     """
     Return the lower-case hexadecimal string representation of the given Array
     of U8.

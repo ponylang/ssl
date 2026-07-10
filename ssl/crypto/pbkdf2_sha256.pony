@@ -22,7 +22,7 @@ primitive Pbkdf2Sha256
   let key = Pbkdf2Sha256("password", "salt", 4096, 32)?
   ```
   """
-  fun tag apply(password: ByteSeq, salt: ByteSeq, iterations: U32,
+  fun apply(password: ByteSeq, salt: ByteSeq, iterations: U32,
     key_length: USize): Array[U8] val ?
   =>
     // `PKCS5_PBKDF2_HMAC` takes an `int` for the iteration count and for each
