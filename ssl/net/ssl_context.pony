@@ -22,19 +22,20 @@ use @SSL_CTX_use_PrivateKey_file[I32](ctx: Pointer[_SSLContext] tag, file: Point
 use @SSL_CTX_check_private_key[I32](ctx: Pointer[_SSLContext] tag)
 use @SSL_CTX_load_verify_locations[I32](ctx: Pointer[_SSLContext] tag, ca_file: Pointer[U8] tag,
   ca_path: Pointer[U8] tag)
-use @X509_STORE_new[Pointer[U8] tag]()
-use @CertOpenSystemStoreA[Pointer[U8] tag](prov: Pointer[U8] tag, protcol: Pointer[U8] tag)
+use @X509_STORE_new[Pointer[_X509Store] tag]()
+use @CertOpenSystemStoreA[Pointer[_CertStore] tag](prov: Pointer[None], protocol: Pointer[U8] tag)
   if windows
-use @CertEnumCertificatesInStore[NullablePointer[_CertContext]](cert_store: Pointer[U8] tag,
+use @CertEnumCertificatesInStore[NullablePointer[_CertContext]](cert_store: Pointer[_CertStore] tag,
   prev_ctx: NullablePointer[_CertContext]) if windows
 use @CertFreeCertificateContext[I32](cert_ctx: NullablePointer[_CertContext]) if windows
 use @d2i_X509[Pointer[X509] tag](val_out: Pointer[Pointer[X509]], der_in: Pointer[Pointer[U8]],
   length: ILong)
-use @X509_STORE_add_cert[I32](store: Pointer[U8] tag, x509: Pointer[X509] tag)
+use @X509_STORE_add_cert[I32](store: Pointer[_X509Store] tag,
+  x509: Pointer[X509] tag)
 use @X509_free[None](x509: Pointer[X509] tag)
-use @SSL_CTX_set_cert_store[None](ctx: Pointer[_SSLContext] tag, store: Pointer[U8] tag)
-use @X509_STORE_free[None](store: Pointer[U8] tag)
-use @CertCloseStore[I32](store: Pointer[U8] tag, flags: U32) if windows
+use @SSL_CTX_set_cert_store[None](ctx: Pointer[_SSLContext] tag, store: Pointer[_X509Store] tag)
+use @X509_STORE_free[None](store: Pointer[_X509Store] tag)
+use @CertCloseStore[I32](store: Pointer[_CertStore] tag, flags: U32) if windows
 use @SSL_CTX_set_cipher_list[I32](ctx: Pointer[_SSLContext] tag, control: Pointer[U8] tag)
 use @SSL_CTX_set_verify_depth[None](ctx: Pointer[_SSLContext] tag, depth: I32)
 use @SSL_CTX_set_alpn_select_cb[None](ctx: Pointer[_SSLContext] tag, cb: _ALPNSelectCallback,
@@ -43,6 +44,8 @@ use @SSL_CTX_set_alpn_protos[I32](ctx: Pointer[_SSLContext] tag, protos: Pointer
   protos_len: U32) if "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl"
 
 primitive _SSLContext
+primitive _X509Store
+primitive _CertStore
 
 primitive _SslCtrlSetOptions   fun val apply(): I32 => 32
 primitive _SslCtrlClearOptions fun val apply(): I32 => 77
@@ -198,7 +201,7 @@ class val SSLContext
   fun ref _load_windows_root_certs() ? =>
     ifdef windows then
       let root_str = "ROOT"
-      let hStore = @CertOpenSystemStoreA(Pointer[U8], root_str.cstring())
+      let hStore = @CertOpenSystemStoreA(Pointer[None], root_str.cstring())
       if hStore.is_null() then error end
 
       let x509_store = @X509_STORE_new()
