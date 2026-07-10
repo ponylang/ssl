@@ -155,7 +155,7 @@ let hash = digest.final()?
 let mac = HmacSha256(key, message)?
 ```
 
-Constructing a `Digest` now raises if OpenSSL cannot allocate its context, rather than returning a digest that fails on every later call. When `HmacSha256` raises, reject the message. Do not fall back to a code of your own — a code you make up is one an attacker can send you.
+Constructing a `Digest` now raises if OpenSSL cannot allocate its context, rather than crashing. When `HmacSha256` raises, reject the message. Do not fall back to a code of your own — a code you make up is one an attacker can send you.
 
 ## Fix HmacSha256 returning an all-zero code when it fails
 
@@ -169,7 +169,7 @@ It was reachable with ordinary input: computing the code of an empty key and an 
 
 `final` returned a block of memory as the hash without checking that OpenSSL had written it, so a failed call returned whatever that memory held — a wrong hash, and a leak of whatever was last in it. Creating a digest crashed when OpenSSL could not allocate its working context.
 
-A digest now raises rather than returning a wrong hash, and one that could not be created reports it at the first `append` or `final` rather than crashing.
+A digest now raises rather than returning a wrong hash, and one that OpenSSL could not create raises when you construct it rather than crashing.
 
 ## Fix crypto functions truncating a length too large for an int
 
