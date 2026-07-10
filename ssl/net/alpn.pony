@@ -27,6 +27,10 @@ interface val ALPNProtocolResolver
   runs it from any of them, so it cannot depend on mutable state.
   """
   fun box resolve(advertised: Array[ALPNProtocolName] val): ALPNMatchResult
+    """
+    Choose a protocol from the ones the client advertised. Returning a name that
+    the client did not advertise fails the handshake.
+    """
 
 class val ALPNStandardProtocolResolver is ALPNProtocolResolver
   """
@@ -80,6 +84,35 @@ primitive _ALPNProtocolList
     end
 
     list
+
+  fun offset_of(protocol_list: String box, name: String box): USize ? =>
+    """
+    The offset within `protocol_list` of the bytes of `name`.
+
+    `protocol_list` is a *protocol name list*. Raises an error when the list is
+    malformed, or when none of the names in it is `name`.
+
+    The length prefix is what makes this an exact match rather than a search:
+    `"h2"` is not found in a list whose only name is `"h2c"`.
+    """
+    let size = name.size()
+    var index = USize(0)
+
+    while index < protocol_list.size() do
+      let len = USize.from[U8](protocol_list(index)?)
+      if len == 0 then error end
+
+      let start = index + 1
+      if (start + len) > protocol_list.size() then error end
+
+      if (len == size) and protocol_list.at(name, start.isize()) then
+        return start
+      end
+
+      index = start + len
+    end
+
+    error
 
   fun to_array(protocol_list: String box): Array[ALPNProtocolName] val ? =>
     """
