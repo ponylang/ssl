@@ -1,6 +1,9 @@
 use "pony_test"
 use "pony_check"
 
+use @memset[Pointer[None]](dst: Pointer[None], value: I32, n: USize)
+use @pony_triggergc[None](ctx: Pointer[None])
+
 actor \nodoc\ Main is TestList
   new create(env: Env) => PonyTest(env, this)
   new make() => None
@@ -16,6 +19,10 @@ actor \nodoc\ Main is TestList
     test(_TestSHA384)
     test(_TestSHA512)
     test(_TestDigest)
+    test(_TestDigestFinalTwice)
+    test(_TestDigestAppendAfterFinal)
+    test(_TestDigestDroppedWithoutFinal)
+    test(_TestDigestDroppedAfterFinal)
     test(_TestHmacSha256Rfc4231)
     test(_TestHmacSha256Scram)
     test(_TestRandBytes)
@@ -196,6 +203,146 @@ class \nodoc\ iso _TestDigest is UnitTest
       "80e2bbb14639e3b1fc1df80b47b67fb518b0ed26a1caddfa10d68f7992c33820",
       ToHexString(shake256.final()))
     end
+
+class \nodoc\ iso _TestDigestFinalTwice is UnitTest
+  """
+  A second `final` returns the hash the first one made.
+
+  The first call gave the context back to OpenSSL and left a null pointer in its
+  place. A second call that recomputed the hash would hand that null to
+  `EVP_DigestFinal_ex`.
+  """
+  fun name(): String => "crypto/Digest/final_twice"
+
+  fun apply(h: TestHelper) ? =>
+    let expected =
+      "68d9b867db4bde630f3c96270b2320a31a72aafbc39997eb2bc9cf2da21e5213"
+
+    let digest = Digest.sha256()
+    digest.append("message1")?
+    digest.append("message2")?
+
+    h.assert_eq[String](expected, ToHexString(digest.final()))
+    h.assert_eq[String](expected, ToHexString(digest.final()))
+
+class \nodoc\ iso _TestDigestAppendAfterFinal is UnitTest
+  """
+  `append` raises an error once `final` has been called.
+
+  A finalized digest holds a null pointer where its context was. `append` raises
+  because the hash is already made, and that is what keeps the null out of
+  `EVP_DigestUpdate`.
+  """
+  fun name(): String => "crypto/Digest/append_after_final"
+
+  fun apply(h: TestHelper) ? =>
+    let digest = Digest.sha256()
+    digest.append("message1")?
+    digest.final()
+
+    let raised =
+      try
+        digest.append("message2")?
+        false
+      else
+        true
+      end
+
+    h.assert_true(raised, "append after final should raise an error")
+
+class \nodoc\ _TestDigestHolder
+  """
+  Holds a digest and reports its own collection by writing a byte through
+  `_collected`, a raw pointer into an array a live `_TestDigestDropRunner`
+  holds.
+  """
+  let _collected: Pointer[U8] tag
+  // Nothing reads this. Holding the digest is the point: nothing else refers to
+  // it, so the sweep that finalizes this object finalizes the digest too.
+  let _digest: Digest
+
+  new create(collected: Pointer[U8] tag, digest: Digest) =>
+    _collected = collected
+    _digest = digest
+
+  fun _final() =>
+    @memset(_collected, I32(1), USize(1))
+
+actor \nodoc\ _TestDigestDropRunner
+  """
+  Drops a digest, forces a collection, and reports whether the collector reached
+  it. Pony collects between behaviors, so the drop happens in one behavior and
+  the check in the next.
+  """
+  let _h: TestHelper
+  let _finalize: Bool
+  embed _flag: Array[U8] = Array[U8].init(0, 1)
+
+  new create(h: TestHelper, finalize: Bool) =>
+    _h = h
+    _finalize = finalize
+
+  be run() =>
+    // The digest and the holder are both locals. Once this behavior returns
+    // nothing roots either of them.
+    try
+      let digest = Digest.sha256()
+      digest.append("message1")?
+      if _finalize then
+        digest.final()
+      end
+      _TestDigestHolder(_flag.cpointer(), digest)
+    else
+      _h.fail("could not append to a digest")
+      _h.complete(false)
+      return
+    end
+
+    @pony_triggergc(@pony_ctx())
+    _check()
+
+  be _check() =>
+    _h.assert_true(
+      // A one element array cannot fail to index. If it somehow did, fail
+      // rather than pass by accident.
+      try _flag(0)? != 0 else false end,
+      "a dropped digest should be collected")
+    _h.complete(true)
+
+class \nodoc\ iso _TestDigestDroppedWithoutFinal is UnitTest
+  """
+  A digest dropped without a call to `final()` reaches the collector, and
+  `Digest._final` runs on a context nothing has freed.
+
+  `_final` cannot be called directly, so the digest has to be collected. It is
+  held by an object that reports its own collection, and nothing else refers to
+  either of them, so the sweep that finalizes the holder finalizes the digest.
+
+  What `_final` hands back to OpenSSL is invisible from Pony, so this cannot
+  watch the context being freed. It can only run the free, and run it here,
+  where a `_final` that gives OpenSSL a pointer it should not have kills this
+  test rather than something further along.
+  """
+  fun name(): String => "crypto/Digest/dropped_without_final"
+
+  fun apply(h: TestHelper) =>
+    h.long_test(2_000_000_000)
+    _TestDigestDropRunner(h where finalize = false).run()
+
+class \nodoc\ iso _TestDigestDroppedAfterFinal is UnitTest
+  """
+  A digest collected after `final()` does not hand OpenSSL its context a second
+  time.
+
+  `final()` frees the context and leaves a null pointer behind, and `_final`
+  frees nothing when it finds one. A `final()` that left the freed pointer in
+  place would give it to `EVP_MD_CTX_free` again when the collector arrived.
+  """
+  fun name(): String => "crypto/Digest/dropped_after_final"
+
+  fun apply(h: TestHelper) =>
+    h.long_test(2_000_000_000)
+    _TestDigestDropRunner(h where finalize = true).run()
 
 class \nodoc\ iso _TestHmacSha256Rfc4231 is UnitTest
   """
