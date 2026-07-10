@@ -283,7 +283,7 @@ class SSL
       end
     end
 
-  fun ref can_send(): Bool =>
+  fun can_send(): Bool =>
     """
     Returns true if there are encrypted bytes to be passed to the destination.
     Returns false if the session has been disposed.
