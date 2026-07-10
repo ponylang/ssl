@@ -36,6 +36,9 @@ actor \nodoc\ Main is TestList
     test(_TestSSLContextSetMaxProtoVersionAfterDispose)
     test(_TestSSLContextGetMinProtoVersionAfterDispose)
     test(_TestSSLContextGetMaxProtoVersionAfterDispose)
+    test(_TestSSLContextGetMinProtoVersionOnValReceiver)
+    test(_TestSSLContextGetMaxProtoVersionOnValReceiver)
+    test(_TestSSLCanSendOnValReceiver)
     test(_TestSSLContextSetAuthorityRootCertsAfterDispose)
     test(_TestSSLContextSetAuthorityAfterDispose)
     test(_TestSSLContextSetCertAfterDispose)
@@ -1964,6 +1967,79 @@ class \nodoc\ iso _TestSSLContextGetMaxProtoVersionAfterDispose is UnitTest
       ctx.get_max_proto_version(),
       "get_max_proto_version() on a disposed context should return "
         + "SslAutoVersion")
+
+class \nodoc\ iso _TestSSLContextGetMinProtoVersionOnValReceiver is UnitTest
+  """
+  `get_min_proto_version` reads through a `val` receiver.
+
+  Configuring a context and then holding it `val` is what `client` and `server`
+  require. A `fun ref` getter cannot be called on a `val` receiver, so this file
+  stops compiling if that capability comes back.
+
+  `create` sets the minimum to `Tls1u2Version`, so the assertion is on a value
+  the getter had to read out of the context rather than on a default.
+  """
+  fun name(): String =>
+    "net/ssl/SSLContext.get_min_proto_version/on_val_receiver"
+
+  fun apply(h: TestHelper) =>
+    let ctx: SSLContext val = recover val SSLContext end
+
+    h.assert_eq[ILong](
+      Tls1u2Version().ilong(),
+      ctx.get_min_proto_version(),
+      "a val receiver should read back the minimum that create() set")
+
+class \nodoc\ iso _TestSSLContextGetMaxProtoVersionOnValReceiver is UnitTest
+  """
+  `get_max_proto_version` reads through a `val` receiver.
+
+  Configuring a context and then holding it `val` is what `client` and `server`
+  require. A `fun ref` getter cannot be called on a `val` receiver, so this file
+  stops compiling if that capability comes back.
+
+  `create` leaves the maximum at `SslAutoVersion`, so this context sets it to
+  `Tls1u3Version` before it freezes. Without that, the assertion would hold
+  for a context whose maximum was never set.
+  """
+  fun name(): String =>
+    "net/ssl/SSLContext.get_max_proto_version/on_val_receiver"
+
+  fun apply(h: TestHelper) ? =>
+    let ctx: SSLContext val =
+      recover val
+        SSLContext .> set_max_proto_version(Tls1u3Version())?
+      end
+
+    h.assert_eq[ILong](
+      Tls1u3Version().ilong(),
+      ctx.get_max_proto_version(),
+      "a val receiver should read back the maximum that was set")
+
+class \nodoc\ iso _TestSSLCanSendOnValReceiver is UnitTest
+  """
+  `can_send` reads through a `val` receiver.
+
+  It reads whether the session has bytes waiting and changes nothing, so a `val`
+  session can call it. A `fun ref` `can_send` could not, and this file stops
+  compiling if that capability comes back.
+
+  A fresh client session has a ClientHello waiting, so `can_send` reads `true`
+  and the assertion is on a value it had to read out of the session. A `val`
+  session cannot be disposed, so the garbage collector frees it.
+  """
+  fun name(): String => "net/ssl/SSL.can_send/on_val_receiver"
+
+  fun apply(h: TestHelper) =>
+    try
+      (let client: SSL val, _) = _TestSSLContext(h)?
+
+      h.assert_true(
+        client.can_send(),
+        "a fresh client session should have a ClientHello to send")
+    else
+      h.fail("could not create an SSL session")
+    end
 
 class \nodoc\ iso _TestSSLContextSetAuthorityRootCertsAfterDispose is UnitTest
   """

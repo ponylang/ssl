@@ -285,7 +285,7 @@ class val SSLContext
       error
     end
 
-  fun ref get_min_proto_version(): ILong =>
+  fun get_min_proto_version(): ILong =>
     """
     Get minimum protocol version. Returns SslAutoVersion, 0,
     when automatically managing lowest version. A disposed context returns
@@ -318,7 +318,7 @@ class val SSLContext
       error
     end
 
-  fun ref get_max_proto_version(): ILong =>
+  fun get_max_proto_version(): ILong =>
     """
     Get maximum protocol version. Returns SslAutoVersion, 0,
     when automatically managing highest version. A disposed context returns
