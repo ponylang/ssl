@@ -14,7 +14,7 @@ actor Main
       try
         // paths need to be adjusted to a absolute location or you need to run
         // the example from a location where this relative path will be valid
-        recover
+        recover val
           SSLContext
             .> set_authority(
               FilePath(file_auth, "assets/cert.pem"))?

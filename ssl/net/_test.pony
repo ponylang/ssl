@@ -4,6 +4,10 @@ use "itertools"
 use "files"
 use "net"
 
+use @memset[Pointer[None]](dst: Pointer[None], value: I32, n: USize)
+use @pony_ctx[Pointer[None]]()
+use @pony_triggergc[None](ctx: Pointer[None])
+
 actor \nodoc\ Main is TestList
   new create(env: Env) => PonyTest(env, this)
   new make() => None
@@ -24,6 +28,9 @@ actor \nodoc\ Main is TestList
     test(_TestSSLALPNSelectedAfterDispose)
     test(_TestSSLContextDisposeTwice)
     test(_TestSSLContextALPNSetResolverAfterDispose)
+    test(_TestSSLContextALPNResolverRootedByContext)
+    test(_TestSSLContextALPNResolverRootedBySession)
+    test(_TestSSLContextALPNResolverUnreferenced)
     test(_TestSSLContextALPNSetClientProtocolsAfterDispose)
     test(_TestSSLContextSetMinProtoVersionAfterDispose)
     test(_TestSSLContextSetMaxProtoVersionAfterDispose)
@@ -300,7 +307,7 @@ class \nodoc\ iso _TestTCPSSLClientVerifyFalseWithHostname is UnitTest
     let auth = FileAuth(h.env.root)
     let sslctx =
       try
-        recover
+        recover val
           SSLContext
             .> set_authority(FilePath(auth, "assets/cert.pem"))?
             .> set_cert(
@@ -387,7 +394,7 @@ class \nodoc\ iso _TestTCPSSLPeerCertificateVerify is UnitTest
     let auth = FileAuth(h.env.root)
     let client_ctx =
       try
-        recover
+        recover val
           SSLContext
             .> set_authority(FilePath(auth, "assets/cert.pem"))?
         end
@@ -400,7 +407,7 @@ class \nodoc\ iso _TestTCPSSLPeerCertificateVerify is UnitTest
     // server to check.
     let server_ctx =
       try
-        recover
+        recover val
           SSLContext
             .> set_cert(
                 FilePath(auth, "assets/cert.pem"),
@@ -489,7 +496,7 @@ class \nodoc\ iso _TestTCPSSLPeerCertificateHostnameMismatch is UnitTest
     let auth = FileAuth(h.env.root)
     let client_ctx =
       try
-        recover
+        recover val
           SSLContext
             .> set_authority(FilePath(auth, "assets/cert.pem"))?
         end
@@ -499,7 +506,7 @@ class \nodoc\ iso _TestTCPSSLPeerCertificateHostnameMismatch is UnitTest
       end
     let server_ctx =
       try
-        recover
+        recover val
           SSLContext
             .> set_cert(
                 FilePath(auth, "assets/cert.pem"),
@@ -608,7 +615,7 @@ class \nodoc\ iso _TestWindowsLoadRootCertificates is UnitTest
     try
       let auth = FileAuth(h.env.root)
       let ssl_ctx =
-        recover
+        recover val
           SSLContext
             .>set_authority(None, None)?
             .>set_cert(FilePath(auth, "assets/cert.pem"),
@@ -969,7 +976,7 @@ primitive \nodoc\ _TestSSLContext
     let sslctx =
       try
         let auth = FileAuth(h.env.root)
-        recover
+        recover val
           SSLContext
             .> set_authority(FilePath(auth, "assets/cert.pem"))?
             .> set_cert(
@@ -1441,27 +1448,10 @@ class \nodoc\ iso _TestSSLALPNSelectedAfterDispose is UnitTest
   fun name(): String => "net/ssl/SSL.alpn_selected/after_dispose"
 
   fun apply(h: TestHelper) =>
-    let auth = FileAuth(h.env.root)
-
-    // The resolver is handed to OpenSSL as callback data, which the Pony GC
-    // cannot see. Hold it here so it outlives the handshake.
-    let resolver = ALPNStandardProtocolResolver(["h2"])
-
     let sslctx =
       try
-        recover val
-          SSLContext
-            .> set_authority(FilePath(auth, "assets/cert.pem"))?
-            .> set_cert(
-                FilePath(auth, "assets/cert.pem"),
-                FilePath(auth, "assets/key.pem"))?
-            .> set_client_verify(false)
-            .> set_server_verify(false)
-            .> alpn_set_client_protocols(["h2"])
-            .> alpn_set_resolver(resolver)
-        end
+        _TestALPNContext(h, ALPNStandardProtocolResolver(["h2"]))?
       else
-        h.fail("ssl context setup failed")
         return
       end
 
@@ -1523,8 +1513,6 @@ class \nodoc\ iso _TestSSLContextALPNSetResolverAfterDispose is UnitTest
   fun name(): String => "net/ssl/SSLContext.alpn_set_resolver/after_dispose"
 
   fun apply(h: TestHelper) =>
-    // The resolver is handed to OpenSSL as callback data, which the Pony GC
-    // cannot see. Hold it here so it outlives the context.
     let resolver = ALPNStandardProtocolResolver(["h2"])
     let ctx = SSLContext
 
@@ -1537,6 +1525,296 @@ class \nodoc\ iso _TestSSLContextALPNSetResolverAfterDispose is UnitTest
     h.assert_false(
       ctx.alpn_set_resolver(resolver),
       "alpn_set_resolver() on a disposed context should return false")
+
+class \nodoc\ val _TestALPNTrackedResolver is ALPNProtocolResolver
+  """
+  Resolves every advertisement to "h2" and reports its own collection by writing
+  a byte through `_collected`, a raw pointer into an array a live
+  `_TestALPNResolverTracker` holds.
+  """
+  let _collected: Pointer[U8] tag
+
+  new val create(collected: Pointer[U8] tag) =>
+    _collected = collected
+
+  fun box resolve(advertised: Array[ALPNProtocolName] val): ALPNMatchResult =>
+    "h2"
+
+  fun _final() =>
+    @memset(_collected, I32(1), USize(1))
+
+class \nodoc\ _TestALPNResolverTracker
+  """
+  Reports whether the resolver it hands out has been garbage collected.
+  """
+  embed _flag: Array[U8] = Array[U8].init(0, 1)
+
+  fun box resolver(): _TestALPNTrackedResolver =>
+    """
+    A resolver that reports its collection to this tracker. The tracker does not
+    hold a reference to it: whether something else does is what the tests
+    measure.
+    """
+    _TestALPNTrackedResolver(_flag.cpointer())
+
+  fun box collected(): Bool =>
+    // A one element array cannot fail to index. If it somehow did, treat it as
+    // collected rather than as the resolver still being alive.
+    try _flag(0)? != 0 else true end
+
+primitive \nodoc\ _TestALPNContext
+  fun apply(h: TestHelper, resolver: ALPNProtocolResolver val): SSLContext val ?
+  =>
+    """
+    A context that both advertises and resolves the "h2" protocol, so a session
+    pair made from it negotiates ALPN.
+    """
+    let auth = FileAuth(h.env.root)
+    try
+      recover val
+        SSLContext
+          .> set_authority(FilePath(auth, "assets/cert.pem"))?
+          .> set_cert(
+              FilePath(auth, "assets/cert.pem"),
+              FilePath(auth, "assets/key.pem"))?
+          .> set_client_verify(false)
+          .> set_server_verify(false)
+          .> alpn_set_client_protocols(["h2"])
+          .> alpn_set_resolver(resolver)
+      end
+    else
+      h.fail("ssl context setup failed")
+      error
+    end
+
+actor \nodoc\ _TestALPNResolverContextRooting
+  """
+  Pony collects between behaviors, so the context is built in one behavior and
+  the resolver checked in the next.
+  """
+  let _h: TestHelper
+  embed _tracker: _TestALPNResolverTracker = _TestALPNResolverTracker
+  var _ctx: (SSLContext val | None) = None
+
+  new create(h: TestHelper) =>
+    _h = h
+
+  be run() =>
+    // `resolver` is a local, so once this behavior returns the context is the
+    // only thing that can be keeping it alive.
+    let resolver = _tracker.resolver()
+
+    try
+      _ctx = _TestALPNContext(_h, resolver)?
+    else
+      _h.complete(false)
+      return
+    end
+
+    @pony_triggergc(@pony_ctx())
+    _check()
+
+  be _check() =>
+    if _tracker.collected() then
+      _h.fail("the context did not keep the resolver alive")
+      _h.complete(false)
+      return
+    end
+
+    let ctx =
+      match _ctx
+      | let c: SSLContext val => c
+      | None =>
+        _h.fail("the context was never created")
+        _h.complete(false)
+        return
+      end
+
+    (let client, let server) =
+      try
+        _TestSSLSessionPair.from_context(_h, ctx)?
+      else
+        _h.complete(false)
+        return
+      end
+
+    match client.alpn_selected()
+    | let protocol: ALPNProtocolName =>
+      _h.assert_eq[String]("h2", protocol)
+    | None =>
+      _h.fail("the client did not negotiate an ALPN protocol")
+    end
+
+    client.dispose()
+    server.dispose()
+    _h.complete(true)
+
+actor \nodoc\ _TestALPNResolverSessionRooting
+  """
+  Pony collects between behaviors, so the sessions are made in one behavior and
+  the resolver checked in the next.
+  """
+  let _h: TestHelper
+  embed _tracker: _TestALPNResolverTracker = _TestALPNResolverTracker
+  var _client: (SSL | None) = None
+  var _server: (SSL | None) = None
+
+  new create(h: TestHelper) =>
+    _h = h
+
+  be run() =>
+    // The resolver and the context are locals, so once this behavior returns
+    // the sessions are the only thing keeping the resolver alive, through the
+    // context they hold.
+    let resolver = _tracker.resolver()
+
+    try
+      let ctx = _TestALPNContext(_h, resolver)?
+      _client = ctx.client()?
+      _server = ctx.server()?
+    else
+      _h.fail("could not create an SSL session pair")
+      _h.complete(false)
+      return
+    end
+
+    @pony_triggergc(@pony_ctx())
+    _check()
+
+  be _check() =>
+    (let client, let server) =
+      try
+        (_client as SSL, _server as SSL)
+      else
+        _h.fail("the sessions were never created")
+        _h.complete(false)
+        return
+      end
+
+    if _tracker.collected() then
+      _h.fail("the sessions did not keep the resolver alive")
+      client.dispose()
+      server.dispose()
+      _h.complete(false)
+      return
+    end
+
+    try
+      _TestSSLSessionPair._handshake(_h, client, server)?
+    else
+      client.dispose()
+      server.dispose()
+      _h.complete(false)
+      return
+    end
+
+    match client.alpn_selected()
+    | let protocol: ALPNProtocolName =>
+      _h.assert_eq[String]("h2", protocol)
+    | None =>
+      _h.fail("the client did not negotiate an ALPN protocol")
+    end
+
+    client.dispose()
+    server.dispose()
+    _h.complete(true)
+
+class \nodoc\ iso _TestSSLContextALPNResolverRootedByContext is UnitTest
+  """
+  A context keeps its ALPN resolver alive.
+
+  `alpn_set_resolver` hands OpenSSL a raw pointer to the resolver, and the Pony
+  garbage collector cannot see it. Without a reference on the Pony side, a
+  collection frees the resolver while OpenSSL still calls it on every later
+  server-side handshake.
+
+  The resolver reports its own collection from `_final`. This test drops every
+  reference to it but the context's, triggers a collection, and then negotiates
+  ALPN through the resolver the context held.
+
+  The negotiation runs only once the resolver is known to be alive. A resolver
+  that was collected would be a use after free, and a crash tells nobody which
+  test caused it.
+  """
+  fun name(): String =>
+    "net/ssl/SSLContext.alpn_set_resolver/resolver_rooted_by_context"
+
+  fun apply(h: TestHelper) =>
+    h.long_test(2_000_000_000)
+    _TestALPNResolverContextRooting(h).run()
+
+class \nodoc\ iso _TestSSLContextALPNResolverRootedBySession is UnitTest
+  """
+  A session keeps the ALPN resolver alive after the context that made it is
+  dropped.
+
+  `SSL_new` takes a reference on the `SSL_CTX`, so the `SSL_CTX` outlives an
+  `SSLContext` the caller drops while a session is still alive, and the ALPN
+  select callback OpenSSL reads out of it still points at the resolver. A
+  session holds the `SSLContext`, which holds the resolver, so both live as long
+  as the session does. This test keeps only the sessions and drops the context
+  the way a caller would.
+
+  Carries the same caveats as
+  `net/ssl/SSLContext.alpn_set_resolver/resolver_rooted_by_context`.
+  """
+  fun name(): String =>
+    "net/ssl/SSLContext.alpn_set_resolver/resolver_rooted_by_session"
+
+  fun apply(h: TestHelper) =>
+    h.long_test(2_000_000_000)
+    _TestALPNResolverSessionRooting(h).run()
+
+actor \nodoc\ _TestALPNResolverUnreferenced
+  """
+  Pony collects between behaviors, so the context is built in one behavior and
+  the resolver checked in the next.
+  """
+  let _h: TestHelper
+  embed _tracker: _TestALPNResolverTracker = _TestALPNResolverTracker
+
+  new create(h: TestHelper) =>
+    _h = h
+
+  be run() =>
+    // The resolver, the context, and the session are all locals. Once this
+    // behavior returns nothing roots the resolver.
+    let resolver = _tracker.resolver()
+
+    try
+      _TestALPNContext(_h, resolver)?.client()?.dispose()
+    else
+      _h.fail("could not create an SSL session")
+      _h.complete(false)
+      return
+    end
+
+    @pony_triggergc(@pony_ctx())
+    _check()
+
+  be _check() =>
+    _h.assert_true(
+      _tracker.collected(),
+      "a resolver nothing holds should be collected")
+    _h.complete(true)
+
+class \nodoc\ iso _TestSSLContextALPNResolverUnreferenced is UnitTest
+  """
+  A resolver that nothing holds is collected.
+
+  This is the positive control for
+  `net/ssl/SSLContext.alpn_set_resolver/resolver_rooted_by_context` and
+  `..._by_session`, which pass by the resolver *not* being collected. It builds
+  the same resolver, keeps neither the context nor a session, and shows the
+  collection happens. Without it, a change that stopped collections altogether
+  would leave both rooting tests passing for the wrong reason.
+  """
+  fun name(): String =>
+    "net/ssl/SSLContext.alpn_set_resolver/resolver_collected_when_unreferenced"
+
+  fun apply(h: TestHelper) =>
+    h.long_test(2_000_000_000)
+    _TestALPNResolverUnreferenced(h).run()
 
 class \nodoc\ iso _TestSSLContextALPNSetClientProtocolsAfterDispose is UnitTest
   """
@@ -1964,20 +2242,22 @@ class \nodoc\ iso _TestSSLContextClientAfterDispose is UnitTest
   fun name(): String => "net/ssl/SSLContext.client/after_dispose"
 
   fun apply(h: TestHelper) =>
-    let ctx = SSLContext
+    let live: SSLContext val = recover val SSLContext end
 
     try
-      let session = ctx.client()?
-      session.dispose()
+      live.client()?.dispose()
     else
       h.fail("client() on a live context should not raise")
     end
 
-    ctx.dispose()
+    // `client` needs an immutable context, so dispose the mutable one first and
+    // then freeze it to call `client` on the disposed result.
+    let mutable: SSLContext iso = recover iso SSLContext end
+    mutable.dispose()
+    let disposed: SSLContext val = consume mutable
 
     try
-      let session = ctx.client()?
-      session.dispose()
+      disposed.client()?.dispose()
       h.fail("client() on a disposed context should raise")
     end
 
@@ -1993,20 +2273,22 @@ class \nodoc\ iso _TestSSLContextServerAfterDispose is UnitTest
   fun name(): String => "net/ssl/SSLContext.server/after_dispose"
 
   fun apply(h: TestHelper) =>
-    let ctx = SSLContext
+    let live: SSLContext val = recover val SSLContext end
 
     try
-      let session = ctx.server()?
-      session.dispose()
+      live.server()?.dispose()
     else
       h.fail("server() on a live context should not raise")
     end
 
-    ctx.dispose()
+    // `server` needs an immutable context, so dispose the mutable one first and
+    // then freeze it to call `server` on the disposed result.
+    let mutable: SSLContext iso = recover iso SSLContext end
+    mutable.dispose()
+    let disposed: SSLContext val = consume mutable
 
     try
-      let session = ctx.server()?
-      session.dispose()
+      disposed.server()?.dispose()
       h.fail("server() on a disposed context should raise")
     end
 
