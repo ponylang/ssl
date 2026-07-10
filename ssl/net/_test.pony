@@ -15,6 +15,8 @@ actor \nodoc\ Main is TestList
   fun tag tests(test: PonyTest) =>
     test(_TestALPNProtocolListEncoding)
     test(_TestALPNProtocolListDecode)
+    test(_TestALPNProtocolListOffsetOf)
+    test(Property1UnitTest[Array[String]](_TestALPNProtocolListOffsetOfRoundtrip))
     test(_TestALPNStandardProtocolResolver)
     test(_TestSSLHandshakeInMemory)
     test(_TestSSLDisposeBeforeHandshake)
@@ -28,6 +30,8 @@ actor \nodoc\ Main is TestList
     test(_TestSSLALPNSelectedAfterDispose)
     test(_TestSSLContextDisposeTwice)
     test(_TestSSLContextALPNSetResolverAfterDispose)
+    test(_TestSSLContextALPNFallbackToClientProtocol)
+    test(_TestSSLContextALPNUnadvertisedProtocolFails)
     test(_TestSSLContextALPNResolverRootedByContext)
     test(_TestSSLContextALPNResolverRootedBySession)
     test(_TestSSLContextALPNResolverUnreferenced)
@@ -102,6 +106,99 @@ class \nodoc\ iso _TestALPNProtocolListEncoding is UnitTest
         _ALPNProtocolList.from_array(["h2"; "http/1.1"])?, valid_h2http11)
     else
       h.fail("failed to encode an array of valid identifiers")
+    end
+
+class \nodoc\ iso _TestALPNProtocolListOffsetOf is UnitTest
+  """
+  `offset_of` finds a protocol name in a protocol list, and raises when the list
+  does not contain it.
+
+  The offset it returns is what the ALPN select callback hands to OpenSSL, so a
+  wrong offset points OpenSSL at the wrong bytes.
+  """
+  fun name(): String => "net/ssl/_ALPNProtocolList.offset_of"
+
+  fun apply(h: TestHelper) =>
+    let h2_http11 = "\x02h2\x08http/1.1"
+
+    try
+      h.assert_eq[USize](
+        1, _ALPNProtocolList.offset_of(h2_http11, "h2")?,
+        "h2 starts one byte past its length prefix")
+      h.assert_eq[USize](
+        4, _ALPNProtocolList.offset_of(h2_http11, "http/1.1")?,
+        "http/1.1 starts after h2 and its own length prefix")
+    else
+      h.fail("failed to find a name that is in the list")
+    end
+
+    h.assert_error(
+      {()? => _ALPNProtocolList.offset_of(h2_http11, "spdy/1")? },
+      "raise on a name the list does not contain")
+
+    // A length prefix is what separates names, so a name that appears in the
+    // list only as part of a longer name is not in the list.
+    h.assert_error(
+      {()? => _ALPNProtocolList.offset_of("\x03h2c", "h2")? },
+      "h2 is not a prefix match inside h2c")
+    h.assert_error(
+      {()? => _ALPNProtocolList.offset_of("\x03xh2", "h2")? },
+      "h2 is not a suffix match inside xh2")
+
+    // "h2" appears inside "h2c" before it appears as a name of its own. The
+    // offset has to be the name's, not the first place the bytes turn up.
+    try
+      h.assert_eq[USize](
+        5, _ALPNProtocolList.offset_of("\x03h2c\x02h2", "h2")?,
+        "a name that a longer name contains is found at its own offset")
+    else
+      h.fail("failed to find h2 past a longer name containing it")
+    end
+
+    try
+      h.assert_eq[USize](
+        1, _ALPNProtocolList.offset_of("\x02h2\x02h2", "h2")?,
+        "a repeated name is found at the first of its offsets")
+    else
+      h.fail("failed to find a repeated name")
+    end
+
+    h.assert_error(
+      {()? => _ALPNProtocolList.offset_of("", "h2")? },
+      "raise on an empty list")
+    h.assert_error(
+      {()? => _ALPNProtocolList.offset_of("\x08http", "http")? },
+      "raise on a list whose length prefix runs past its end")
+    h.assert_error(
+      {()? => _ALPNProtocolList.offset_of("\x00", "")? },
+      "raise on a zero length prefix")
+
+class \nodoc\ iso _TestALPNProtocolListOffsetOfRoundtrip is Property1[Array[String]]
+  """
+  Every name `from_array` packs into a list is found by `offset_of`, at an offset
+  whose bytes are that name.
+  """
+  fun name(): String => "net/ssl/_ALPNProtocolList.offset_of/property/roundtrip"
+
+  fun gen(): Generator[Array[String]] =>
+    Generators.array_of[String](
+      Generators.ascii_printable(1, 20) where min = 1, max = 5)
+
+  fun ref property(sample: Array[String], h: PropertyHelper) ? =>
+    let list = _ALPNProtocolList.from_array(sample)?
+
+    for protocol in sample.values() do
+      let offset = _ALPNProtocolList.offset_of(list, protocol)?
+
+      // The byte before a name is its length. Checking it says the offset is
+      // the start of a name and not somewhere in the middle of one, which is
+      // the only way `offset_of` can be wrong while still matching the bytes.
+      h.assert_eq[USize](
+        protocol.size(), USize.from[U8](list(offset - 1)?),
+        "the byte before the offset should be the name's length")
+      h.assert_true(
+        list.at(protocol, offset.isize()),
+        "the bytes at the offset should be the protocol name")
     end
 
 class \nodoc\ iso _TestALPNProtocolListDecode is UnitTest
@@ -1528,6 +1625,88 @@ class \nodoc\ iso _TestSSLContextALPNSetResolverAfterDispose is UnitTest
     h.assert_false(
       ctx.alpn_set_resolver(resolver),
       "alpn_set_resolver() on a disposed context should return false")
+
+class \nodoc\ val _TestALPNFixedResolver is ALPNProtocolResolver
+  """
+  Resolves every advertisement to one name, whatever the client advertised.
+  """
+  let _protocol: String
+
+  new val create(protocol: String) =>
+    _protocol = protocol
+
+  fun box resolve(advertised: Array[ALPNProtocolName] val): ALPNMatchResult =>
+    _protocol
+
+class \nodoc\ iso _TestSSLContextALPNFallbackToClientProtocol is UnitTest
+  """
+  A resolver that falls back to the client's first advertised protocol
+  negotiates it.
+
+  `ALPNStandardProtocolResolver` takes that name from the array the select
+  callback built out of a copy of the wire buffer, not from its own `supported`
+  list. It is the name the callback has no lifetime for, and the one the fix has
+  to point back into the buffer OpenSSL passed in.
+
+  The resolver's `supported` list shares nothing with what the client
+  advertises, so the fallback is the only way it can select anything.
+
+  The pointer moving is not observable from here. Every supported backend copies
+  the bytes out of `*out` inside the callback's own C frame, so the pointer the
+  callback handed over before this change was still live when it was read. What
+  this drives is the path, and what it pins is that the fallback still negotiates
+  once the pointer points into the client's buffer.
+  """
+  fun name(): String =>
+    "net/ssl/SSLContext.alpn_set_resolver/fallback_to_client_protocol"
+
+  fun apply(h: TestHelper) ? =>
+    let ctx = _TestALPNContext(h, ALPNStandardProtocolResolver(["spdy/1"]))?
+    (let client, let server) = _TestSSLSessionPair.from_context(h, ctx)?
+
+    match client.alpn_selected()
+    | let protocol: ALPNProtocolName =>
+      h.assert_eq[String](
+        "h2", protocol, "the client's own protocol should be selected")
+    | None =>
+      h.fail("the client did not negotiate an ALPN protocol")
+    end
+
+    client.dispose()
+    server.dispose()
+
+class \nodoc\ iso _TestSSLContextALPNUnadvertisedProtocolFails is UnitTest
+  """
+  A server whose resolver returns a protocol the client did not advertise stops
+  handshaking on the client's first flight.
+
+  The callback may only hand OpenSSL a pointer into the buffer the client sent.
+  A name that is nowhere in that buffer has no such pointer, and a server that
+  selects a protocol the client never offered is wrong to begin with.
+
+  The assertion is on the server, and after a single transfer. An OpenSSL client
+  refuses an unadvertised protocol on its own, a round or two later, so a test
+  that waited for the whole handshake to fail would pass whether or not the
+  server refused. It would be measuring the client.
+  """
+  fun name(): String =>
+    "net/ssl/SSLContext.alpn_set_resolver/unadvertised_protocol_fails"
+
+  fun apply(h: TestHelper) ? =>
+    let ctx = _TestALPNContext(h, _TestALPNFixedResolver("spdy/1"))?
+    let client: SSL = ctx.client()?
+    let server: SSL = ctx.server()?
+
+    // The client's opening flight carries the protocols it advertises. Handing
+    // it to the server is what runs the resolver.
+    _TestSSLTransfer(client, server)?
+
+    h.assert_false(
+      server.state() is SSLHandshake,
+      "the server should refuse a protocol the client did not advertise")
+
+    client.dispose()
+    server.dispose()
 
 class \nodoc\ val _TestALPNTrackedResolver is ALPNProtocolResolver
   """

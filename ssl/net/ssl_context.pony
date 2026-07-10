@@ -409,7 +409,14 @@ class val SSLContext
       | let matched: String =>
         let size = matched.size()
         if (size > 0) and (size <= 255) then
-          var ptr = matched.cpointer()
+          // OpenSSL reads the pointer written to `out` after this call returns,
+          // and only `inptr` and buffers that outlive the handshake are still
+          // valid then. A name the resolver built here is neither, so point
+          // into `inptr`. `proto_arr_str` is a byte for byte copy of it, so an
+          // offset into one is an offset into the other. A name that is nowhere
+          // in `inptr` is one the client never advertised, and raises.
+          let offset = _ALPNProtocolList.offset_of(proto_arr_str, matched)?
+          var ptr = inptr.offset(offset)
           var len = size.u8()
           @memcpy(out, addressof ptr, USize(0).bytewidth())
           @memcpy(outlen, addressof len, USize(1))
