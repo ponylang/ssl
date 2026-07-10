@@ -216,8 +216,10 @@ class val SSLContext
         hStore, NullablePointer[_CertContext].none())
 
       try
-        while not pContext.is_none() do
-          let cert_context = pContext()?
+        while true do
+          // `CertEnumCertificatesInStore` returns null when there is no next
+          // certificate, so a null `pContext` is the end of the enumeration.
+          let cert_context = try pContext()? else break end
           let x509 = @d2i_X509(Pointer[Pointer[X509]],
             addressof cert_context.pbCertEncoded,
             cert_context.cbCertEncoded.ilong())

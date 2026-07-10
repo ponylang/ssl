@@ -149,8 +149,9 @@ class SSLConnection is TCPConnectionNotify
         end
 
         try
-          while _pending.size() > 0 do
-            _ssl.write(_pending.shift()?)?
+          while true do
+            let bytes = try _pending.shift()? else break end
+            _ssl.write(bytes)?
           end
         end
       end
