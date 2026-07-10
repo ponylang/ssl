@@ -26,6 +26,3 @@ The one-shot hash functions and `ConstantTimeCompare` cannot fail and are total.
 When `HmacSha256` raises, reject the message. Do not compare it against a code
 of your own making — a code you invent is one an attacker can send you.
 """
-
-use @pony_ctx[Pointer[None]]()
-use @pony_alloc[Pointer[U8]](ctx: Pointer[None], size: USize)
