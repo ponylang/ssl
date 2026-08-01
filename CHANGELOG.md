@@ -10,6 +10,7 @@ All notable changes to this project will be documented in this file. This projec
 - Fix SSL sessions returning uninitialized memory ([PR #124](https://github.com/ponylang/ssl/pull/124))
 - Fix handshake failures being reported as authentication failures ([PR #126](https://github.com/ponylang/ssl/pull/126))
 - Fix unproven peer certificates reporting SSLError instead of SSLAuthFail ([PR #133](https://github.com/ponylang/ssl/pull/133))
+- Fix receive reporting inconsistent state when a callback contaminates the error queue ([PR #134](https://github.com/ponylang/ssl/pull/134))
 
 ### Added
 
