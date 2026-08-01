@@ -96,6 +96,12 @@ Declare the Pony type that matches the C type in the header, not one that happen
 
 `ILong`/`ULong` track C's `long` — 32 bits on Windows and on 32-bit targets, 64 on 64-bit Unix — and `USize` tracks pointer-width `size_t`; neither stands in for `uint64_t`. Reaching for `ULong` because it is 64 bits on the platform in front of you passes 32 bits on every 32-bit build. A `Pointer[X]`'s element type never reaches the ABI, so a wrong one survives a null call but corrupts a later caller who passes `addressof` a real value. Public Pony signatures need not match the C types — convert at the call (`set_verify_depth` takes a `U32` and passes `depth.i32()`) — but a conversion that can wrap (a depth above `2^31` arriving negative) must be validated at the public boundary or called out in the docstring.
 
+## Buffers OpenSSL fills partway
+
+`SSL_read` and `BIO_read` write up to the length they are given and return the count they wrote. `Array.undefined` does not zero what it allocates. So a buffer sized to the length you asked for, and handed back whole, holds whatever the heap held past the count the call returned — out to the application from `read`, out to the peer from `send`. That is #123, where those bytes came back as plaintext the same session had already delivered to the same caller.
+
+Set the size from the call's return on every path out, and treat a return of zero or less as no bytes written rather than as a count.
+
 ## Conventions
 
 - `\nodoc\` on test classes, actors, and primitives.

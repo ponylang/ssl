@@ -23,6 +23,10 @@ actor \nodoc\ Main is TestList
     test(_TestSSLHandshakeInMemory)
     test(_TestSSLFailedHandshakeDoesNotAffectLaterRead)
     test(_TestSSLReadReportsGenuineError)
+    test(_TestSSLReadAfterErrorReturnsOnlyDecryptedBytes)
+    test(_TestSSLReadWithBufferedBytes)
+    test(_TestSSLReadNoExpectAfterError)
+    test(_TestSSLReadPendingExceedsExpect)
     test(_TestSSLDisposeBeforeHandshake)
     test(_TestSSLDisposeTwice)
     test(_TestSSLReadAfterDispose)
@@ -1128,6 +1132,23 @@ primitive \nodoc\ _TestSSLTransfer
       receiver.receive(sender.send()?)
     end
 
+primitive \nodoc\ _TestSSLCorruptRecord
+  fun val apply(sender: SSL, receiver: SSL, payload: ByteSeq) ? =>
+    """
+    Write `payload` on the sender and hand the receiver the resulting
+    ciphertext with its last byte flipped, which breaks the authentication tag
+    of the record that byte belongs to.
+    """
+    sender.write(payload)?
+    var record = sender.send()?
+    let last = record.size() - 1
+    record(last)? = record(last)? xor 0xFF
+    receiver.receive(consume record)
+    // `send` returns one buffer, and a payload large enough to span records
+    // leaves the rest queued. Hand those over too, so the receiver gets
+    // everything the sender wrote.
+    _TestSSLTransfer(sender, receiver)?
+
 primitive \nodoc\ _TestSSLSessionPair
   fun val apply(h: TestHelper): (SSL, SSL) ? =>
     """
@@ -1333,11 +1354,7 @@ class \nodoc\ iso _TestSSLReadReportsGenuineError is UnitTest
       end
 
     try
-      client.write("hello")?
-      var record = client.send()?
-      let last = record.size() - 1
-      record(last)? = record(last)? xor 0xFF
-      server.receive(consume record)
+      _TestSSLCorruptRecord(client, server, "hello")?
     else
       h.fail("could not send a corrupted record")
       client.dispose()
@@ -1355,6 +1372,257 @@ class \nodoc\ iso _TestSSLReadReportsGenuineError is UnitTest
     h.assert_true(
       server.state() is SSLError,
       "a record that will not decrypt should put the session in SSLError")
+
+    client.dispose()
+    server.dispose()
+
+class \nodoc\ iso _TestSSLReadAfterErrorReturnsOnlyDecryptedBytes is UnitTest
+  """
+  A read that fails partway through an `expect` block does not hand back the
+  part of the block no decrypt ever wrote.
+
+  Fifty bytes and a read of a hundred leave half a block buffered. The read
+  that meets the broken record fails with those fifty still there, so a read
+  of a hundred must return `None` and a read of fifty must return the fifty.
+  """
+  fun name(): String =>
+    "net/ssl/SSL.read/after_error_returns_only_decrypted_bytes"
+
+  fun apply(h: TestHelper) =>
+    (let client, let server) =
+      try
+        _TestSSLSessionPair(h)?
+      else
+        h.fail("could not establish an SSL session pair")
+        return
+      end
+
+    // Half of the hundred the reads below request, so the first of them
+    // buffers these bytes and returns nothing.
+    try
+      client.write(recover val Array[U8].init('A', 50) end)?
+      _TestSSLTransfer(client, server)?
+    else
+      h.fail("client could not send application data")
+      client.dispose()
+      server.dispose()
+      return
+    end
+
+    match \exhaustive\ server.read(100)
+    | let data: Array[U8] iso =>
+      h.fail(
+        "50 bytes satisfied a read of 100 and produced "
+          + (consume data).size().string() + " bytes")
+      client.dispose()
+      server.dispose()
+      return
+    | None => None
+    end
+
+    try
+      _TestSSLCorruptRecord(
+        client, server, recover val Array[U8].init('B', 50) end)?
+    else
+      h.fail("could not send a corrupted record")
+      client.dispose()
+      server.dispose()
+      return
+    end
+
+    match \exhaustive\ server.read(100)
+    | let data: Array[U8] iso =>
+      h.fail(
+        "a corrupted record produced " + (consume data).size().string()
+          + " bytes")
+    | None => None
+    end
+    h.assert_true(
+      server.state() is SSLError,
+      "a record that will not decrypt should put the session in SSLError")
+
+    match \exhaustive\ server.read(100)
+    | let data: Array[U8] iso =>
+      h.fail(
+        "a read of 100 returned " + (consume data).size().string()
+          + " bytes with only 50 decrypted")
+    | None => None
+    end
+
+    // A read with no `expect` decrypts before it hands anything over, so on a
+    // failed session it returns `None` and leaves the fifty where they are.
+    match \exhaustive\ server.read()
+    | let data: Array[U8] iso =>
+      h.fail(
+        "a read with no expect returned " + (consume data).size().string()
+          + " bytes from a failed session")
+    | None => None
+    end
+
+    match \exhaustive\ server.read(50)
+    | let data: Array[U8] iso =>
+      h.assert_array_eq[U8](
+        recover val Array[U8].init('A', 50) end,
+        consume data,
+        "a read of 50 returned something other than the 50 decrypted bytes")
+    | None =>
+      h.fail("a read of 50 returned none of the 50 bytes that were decrypted")
+    end
+
+    client.dispose()
+    server.dispose()
+
+class \nodoc\ iso _TestSSLReadWithBufferedBytes is UnitTest
+  """
+  A read with no `expect` returns `None` when it decrypts nothing, whatever is
+  already buffered. A read with an `expect` at or below how many are buffered
+  returns all of them, not `expect` of them.
+  """
+  fun name(): String => "net/ssl/SSL.read/with_buffered_bytes"
+
+  fun apply(h: TestHelper) =>
+    (let client, let server) =
+      try
+        _TestSSLSessionPair(h)?
+      else
+        h.fail("could not establish an SSL session pair")
+        return
+      end
+
+    try
+      client.write(recover val Array[U8].init('A', 50) end)?
+      _TestSSLTransfer(client, server)?
+    else
+      h.fail("client could not send application data")
+      client.dispose()
+      server.dispose()
+      return
+    end
+
+    match \exhaustive\ server.read(100)
+    | let data: Array[U8] iso =>
+      h.fail(
+        "50 bytes satisfied a read of 100 and produced "
+          + (consume data).size().string() + " bytes")
+      client.dispose()
+      server.dispose()
+      return
+    | None => None
+    end
+
+    h.assert_true(
+      server.state() is SSLReady,
+      "the session should still be SSLReady")
+
+    match \exhaustive\ server.read()
+    | let data: Array[U8] iso =>
+      h.fail(
+        "a read with no expect returned " + (consume data).size().string()
+          + " bytes from a call that decrypted nothing")
+    | None => None
+    end
+
+    match \exhaustive\ server.read(20)
+    | let data: Array[U8] iso =>
+      h.assert_eq[USize](
+        50,
+        (consume data).size(),
+        "a read of 20 against 50 buffered bytes returned")
+    | None => h.fail("a read of 20 returned None with 50 bytes buffered")
+    end
+
+    client.dispose()
+    server.dispose()
+
+class \nodoc\ iso _TestSSLReadNoExpectAfterError is UnitTest
+  """
+  A read with no `expect` on a failed session returns `None` and leaves nothing
+  behind that a later read hands out.
+
+  The read of one byte at the end returns whatever is buffered, so it reports
+  what the failed read left.
+  """
+  fun name(): String => "net/ssl/SSL.read/no_expect_after_error"
+
+  fun apply(h: TestHelper) =>
+    (let client, let server) =
+      try
+        _TestSSLSessionPair(h)?
+      else
+        h.fail("could not establish an SSL session pair")
+        return
+      end
+
+    try
+      _TestSSLCorruptRecord(client, server, "hello")?
+    else
+      h.fail("could not send a corrupted record")
+      client.dispose()
+      server.dispose()
+      return
+    end
+
+    match \exhaustive\ server.read()
+    | let data: Array[U8] iso =>
+      h.fail(
+        "a corrupted record produced " + (consume data).size().string()
+          + " bytes")
+    | None => None
+    end
+
+    // A read of one byte returns the buffer whole if the failed read left
+    // anything in it, so a returned array gives the size that was left.
+    match \exhaustive\ server.read(1)
+    | let data: Array[U8] iso =>
+      h.fail(
+        "a read of 1 returned " + (consume data).size().string()
+          + " bytes with none decrypted")
+    | None => None
+    end
+
+    client.dispose()
+    server.dispose()
+
+class \nodoc\ iso _TestSSLReadPendingExceedsExpect is UnitTest
+  """
+  A read that draws on more bytes than it requested takes only what it
+  requested.
+
+  Fifty bytes are written at once and no ciphertext moves between the two
+  reads, so the second draws on bytes OpenSSL had already decrypted.
+  """
+  fun name(): String => "net/ssl/SSL.read/pending_exceeds_expect"
+
+  fun apply(h: TestHelper) =>
+    (let client, let server) =
+      try
+        _TestSSLSessionPair(h)?
+      else
+        h.fail("could not establish an SSL session pair")
+        return
+      end
+
+    try
+      client.write(recover val Array[U8].init('A', 50) end)?
+      _TestSSLTransfer(client, server)?
+    else
+      h.fail("client could not send application data")
+      client.dispose()
+      server.dispose()
+      return
+    end
+
+    match \exhaustive\ server.read(20)
+    | let data: Array[U8] iso =>
+      h.assert_eq[USize](20, (consume data).size(), "read(20) returned")
+    | None => h.fail("read(20) returned None with 50 bytes available")
+    end
+
+    match \exhaustive\ server.read(10)
+    | let data: Array[U8] iso =>
+      h.assert_eq[USize](10, (consume data).size(), "read(10) returned")
+    | None => h.fail("read(10) returned None with 30 bytes pending")
+    end
 
     client.dispose()
     server.dispose()
@@ -1579,7 +1847,8 @@ class \nodoc\ iso _TestSSLSendAfterDispose is UnitTest
   `send` on a disposed session raises an error instead of reading a freed BIO.
 
   The session has encrypted bytes waiting when it is disposed, so the error
-  here is the disposed check and not the empty BIO check.
+  here comes from the disposed check and not from any of the other reasons
+  `send` raises.
   """
   fun name(): String => "net/ssl/SSL.send/after_dispose"
 

@@ -39,6 +39,15 @@ primitive _SSL
 primitive _BIO
 primitive _BIOMethod
 
+primitive _SSLErrorCode
+  """
+  `SSL_get_error` results, from `openssl/ssl.h`.
+  """
+  fun ssl(): I32 => 1
+  fun want_read(): I32 => 2
+  fun syscall(): I32 => 5
+  fun zero_return(): I32 => 6
+
 primitive SSLHandshake
   """
   The session is still handshaking.
@@ -179,8 +188,8 @@ class SSL
   fun ref read(expect: USize = 0): (Array[U8] iso^ | None) =>
     """
     Returns unencrypted bytes to be passed to the application. If `expect` is
-    non-zero, the number of bytes returned will be exactly `expect`. If no data
-    (or less than `expect` bytes) is available, this returns None. A disposed
+    non-zero, this returns None until at least `expect` bytes are available,
+    then returns everything it holds, which is at least `expect`. A disposed
     session returns None.
     """
     if _ssl.is_null() then return None end
@@ -198,39 +207,28 @@ class SSL
         1024
       end
 
-    let max = if expect > 0 then expect - offset else USize.max_value() end
     let pending = @SSL_pending(_ssl).usize()
 
     if pending > 0 then
-      if expect > 0 then
-        len = len.min(pending)
-      else
-        len = pending
-      end
+      len = if expect > 0 then len.min(pending) else pending end
+    end
 
-      _read_buf.undefined(offset + len)
-      @ERR_clear_error()
-      @SSL_read(_ssl, _read_buf.cpointer(offset), len.i32())
-    else
-      _read_buf.undefined(offset + len)
-      @ERR_clear_error()
-      let r =
-        @SSL_read(_ssl, _read_buf.cpointer(offset), len.i32())
+    _read_buf.undefined(offset + len)
+    @ERR_clear_error()
+    let r = @SSL_read(_ssl, _read_buf.cpointer(offset), len.i32())
 
-      if r <= 0 then
-        match @SSL_get_error(_ssl, r)
-        | 1 | 5 | 6 =>
-          _state = SSLError
-          return None
-        | 2 =>
-          // SSL buffer has more data but it is not yet decoded (or something)
-          _read_buf.truncate(offset)
-          return None
-        end
+    let filled = if r > 0 then r.usize() else 0 end
+    _read_buf.truncate(offset + filled)
 
-        _read_buf.truncate(offset)
-      else
-        _read_buf.truncate(offset + r.usize())
+    if r <= 0 then
+      match @SSL_get_error(_ssl, r)
+      | _SSLErrorCode.ssl()
+      | _SSLErrorCode.syscall()
+      | _SSLErrorCode.zero_return() =>
+        _state = SSLError
+        return None
+      | _SSLErrorCode.want_read() =>
+        return None
       end
     end
 
@@ -295,8 +293,9 @@ class SSL
         _verify_hostname()
       else
         match @SSL_get_error(_ssl, r)
-        | 1 => _state = SSLAuthFail
-        | 5 | 6 => _state = SSLError
+        | _SSLErrorCode.ssl() => _state = SSLAuthFail
+        | _SSLErrorCode.syscall() | _SSLErrorCode.zero_return() =>
+          _state = SSLError
         end
       end
     end
@@ -321,7 +320,9 @@ class SSL
     if len == 0 then error end
 
     let buf = recover Array[U8] .> undefined(len) end
-    @BIO_read(_output, buf.cpointer(), buf.size().i32())
+    let r = @BIO_read(_output, buf.cpointer(), buf.size().i32())
+    if r <= 0 then error end
+    buf.truncate(r.usize())
     buf
 
   fun ref dispose() =>
