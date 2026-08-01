@@ -1,0 +1,3 @@
+## Fix receive reporting inconsistent state when a callback contaminates the error queue
+
+A callback running during the TLS handshake — such as an ALPN resolver — could change whether `auth_failed` fired on the connection notify. The same handshake failure could produce `SSLAuthFail` or `SSLError` depending on what the callback happened to call internally, because one OpenSSL error code bypassed the authentication-failure classification that the other went through. Both error codes now take the same classification path, so the reported state depends on what failed, not on what the callback did.

@@ -30,6 +30,7 @@ actor \nodoc\ Main is TestList
     test(_TestSSLReceiveVerifyOffNeverAuthFails)
     test(_TestSSLReceiveUnprovenCertificate)
     test(_TestSSLReceiveUntrustedClientChain)
+    test(_TestSSLReceiveALPNFatalWithQueuedError)
     test(_TestERRCodeFields)
     test(_TestSSLFailedHandshakeDoesNotAffectLaterRead)
     test(_TestSSLReadReportsGenuineError)
@@ -1828,6 +1829,68 @@ class \nodoc\ iso _TestSSLReceiveUntrustedClientChain is UnitTest
     client.dispose()
     server.dispose()
 
+class \nodoc\ iso _TestSSLReceiveALPNFatalWithQueuedError is UnitTest
+  """
+  An ALPN resolver that rejects the protocol reports the same state whether
+  or not it leaves a system error on the thread's error queue.
+
+  A clean `ALPNFatal` puts `ssl routines::no application protocol` on the
+  queue, so `SSL_get_error` returns `SSL_ERROR_SSL`. A resolver that
+  fails an OpenSSL call first puts a system error as the older entry, and
+  `SSL_get_error` returns `SSL_ERROR_SYSCALL` instead. Both error codes must
+  reach the same classification logic, or the reported state depends on what
+  the resolver happened to call.
+  """
+  fun name(): String => "net/ssl/SSL.receive/alpn_fatal_with_queued_error"
+
+  fun apply(h: TestHelper) =>
+    let auth = FileAuth(h.env.root)
+
+    let clean_state = _attempt(h, _TestALPNFatalResolver)
+    let dirty_state =
+      _attempt(h, _TestALPNContaminatingFatalResolver(auth))
+
+    h.assert_true(
+      clean_state is dirty_state,
+      "queue contamination from the resolver changed the server's state")
+
+  fun _attempt(
+    h: TestHelper,
+    resolver: ALPNProtocolResolver val)
+    : SSLState
+  =>
+    let auth = FileAuth(h.env.root)
+    let sslctx =
+      try
+        recover val
+          SSLContext
+            .> set_authority(FilePath(auth, "assets/cert.pem"))?
+            .> set_cert(
+                FilePath(auth, "assets/cert.pem"),
+                FilePath(auth, "assets/key.pem"))?
+            .> set_client_verify(false)
+            .> set_server_verify(false)
+            .> alpn_set_client_protocols(["h2"])
+            .> alpn_set_resolver(resolver)
+        end
+      else
+        h.fail("ssl context setup failed")
+        return SSLHandshake
+      end
+
+    (let client, let server) =
+      try
+        _TestSSLSessionPair.attempt(h, sslctx, sslctx)?
+      else
+        h.fail("could not create an SSL session pair")
+        return SSLHandshake
+      end
+
+    let state = server.state()
+    client.dispose()
+    server.dispose()
+    state
+
 class \nodoc\ iso _TestSSLFailedHandshakeDoesNotAffectLaterRead is UnitTest
   """
   A handshake that fails on one session does not put a session that reads
@@ -2582,6 +2645,34 @@ class \nodoc\ iso _TestSSLContextALPNSetResolverAfterDispose is UnitTest
     h.assert_false(
       ctx.alpn_set_resolver(resolver),
       "alpn_set_resolver() on a disposed context should return false")
+
+class \nodoc\ val _TestALPNFatalResolver is ALPNProtocolResolver
+  fun box resolve(advertised: Array[ALPNProtocolName] val): ALPNMatchResult =>
+    ALPNFatal
+
+class \nodoc\ val _TestALPNContaminatingFatalResolver
+  is ALPNProtocolResolver
+  """
+  Rejects every advertisement and leaves a system error on the thread's error
+  queue. The failed `set_cert` call inside `resolve` pushes the error;
+  OpenSSL then pushes its own `ssl routines::no application protocol` entry
+  on top. Because the system error is the older one, `SSL_get_error` returns
+  `SSL_ERROR_SYSCALL` instead of `SSL_ERROR_SSL`.
+  """
+  let _auth: FileAuth
+
+  new val create(auth: FileAuth) =>
+    _auth = auth
+
+  fun box resolve(advertised: Array[ALPNProtocolName] val): ALPNMatchResult =>
+    let ctx = SSLContext
+    try
+      ctx.set_cert(
+        FilePath(_auth, "/nonexistent/cert.pem"),
+        FilePath(_auth, "/nonexistent/key.pem"))?
+    end
+    ctx.dispose()
+    ALPNFatal
 
 class \nodoc\ val _TestALPNFixedResolver is ALPNProtocolResolver
   """
