@@ -361,9 +361,9 @@ class SSL
         _verify_hostname()
       else
         match @SSL_get_error(_ssl, r)
-        | _SSLErrorCode.ssl() =>
+        | _SSLErrorCode.ssl() | _SSLErrorCode.syscall() =>
           _state = if _peer_auth_failed() then SSLAuthFail else SSLError end
-        | _SSLErrorCode.syscall() | _SSLErrorCode.zero_return() =>
+        | _SSLErrorCode.zero_return() =>
           _state = SSLError
         end
       end
@@ -423,8 +423,8 @@ class SSL
 
   fun ref _peer_auth_failed(): Bool =>
     """
-    Whether the `SSL_ERROR_SSL` the caller just got from `SSL_do_handshake` was
-    this session rejecting its peer's certificate.
+    Whether the handshake failure the caller just got from `SSL_do_handshake`
+    was this session rejecting its peer's certificate.
 
     True for a chain that did not verify, for a peer that sent no certificate
     when one was required, and for a peer that presented a certificate but
@@ -432,6 +432,12 @@ class SSL
     certificate would not parse: the failure happens before chain verification,
     so it is not distinguishable from one that had nothing to do with a
     certificate.
+
+    Called for both `SSL_ERROR_SSL` and `SSL_ERROR_SYSCALL`. A callback that
+    runs inside `SSL_do_handshake` can push an entry onto the thread's error
+    queue, changing `SSL_get_error` from one to the other without changing what
+    actually failed. Routing both through this method keeps the reported state
+    consistent.
 
     Callers must have checked that `_ssl` is not null, and must arrive with the
     thread's error queue as `SSL_do_handshake` left it. A peer that sent no
