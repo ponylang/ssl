@@ -31,3 +31,7 @@ If you wrap a protocol in `SSLConnection`, what changes is whether `auth_failed`
 
 A peer that presents a certificate it cannot prove it holds — an impersonator with a copy of the certificate but not the matching private key — now reports `SSLAuthFail`. Previously it reported `SSLError`, so `SSLConnection` closed the connection without calling `auth_failed` on the wrapped notify.
 
+## Fix receive reporting inconsistent state when a callback contaminates the error queue
+
+A callback running during the TLS handshake — such as an ALPN resolver — could change whether `auth_failed` fired on the connection notify. The same handshake failure could produce `SSLAuthFail` or `SSLError` depending on what the callback happened to call internally, because one OpenSSL error code bypassed the authentication-failure classification that the other went through. Both error codes now take the same classification path, so the reported state depends on what failed, not on what the callback did.
+
