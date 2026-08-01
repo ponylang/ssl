@@ -7,6 +7,7 @@ use "net"
 use @memset[Pointer[None]](dst: Pointer[None], value: I32, n: USize)
 use @pony_ctx[Pointer[None]]()
 use @pony_triggergc[None](ctx: Pointer[None])
+use @ERR_peek_error[ULong]()
 
 actor \nodoc\ Main is TestList
   new create(env: Env) => PonyTest(env, this)
@@ -20,6 +21,8 @@ actor \nodoc\ Main is TestList
       _TestALPNProtocolListOffsetOfRoundtrip))
     test(_TestALPNStandardProtocolResolver)
     test(_TestSSLHandshakeInMemory)
+    test(_TestSSLFailedHandshakeDoesNotAffectLaterRead)
+    test(_TestSSLReadReportsGenuineError)
     test(_TestSSLDisposeBeforeHandshake)
     test(_TestSSLDisposeTwice)
     test(_TestSSLReadAfterDispose)
@@ -1240,6 +1243,118 @@ class \nodoc\ iso _TestSSLHandshakeInMemory is UnitTest
     | None =>
       h.fail("server read no application data")
     end
+
+    client.dispose()
+    server.dispose()
+
+class \nodoc\ iso _TestSSLFailedHandshakeDoesNotAffectLaterRead is UnitTest
+  """
+  A handshake that fails on one session does not put a session that reads
+  afterwards into `SSLError`.
+
+  OpenSSL's error queue belongs to the thread, not to the session, and
+  `SSL_get_error` describes the call it is given only when that queue was empty
+  beforehand. A failed handshake leaves entries on it. A session that reads on
+  the same thread after that failure, with nothing to read, should stay
+  `SSLReady`. If it reports `SSLError` instead, a consumer branching on the
+  state closes a connection that is working.
+  """
+  fun name(): String =>
+    "net/ssl/SSL/failed_handshake_does_not_affect_later_read"
+
+  fun apply(h: TestHelper) =>
+    (let client, let server) =
+      try
+        _TestSSLSessionPair(h)?
+      else
+        h.fail("could not establish an SSL session pair")
+        return
+      end
+
+    // A handshake clears the error queue, so the failure has to be staged after
+    // the healthy pair handshakes, not before.
+    (let failed, let failed_peer) =
+      try
+        _TestSSLSessionPair.fresh(h)?
+      else
+        h.fail("could not create an SSL session pair")
+        client.dispose()
+        server.dispose()
+        return
+      end
+
+    // These bytes are not a valid TLS record, so the handshake fails.
+    failed.receive("NOT AN SSL HANDSHAKE\r\n")
+    h.assert_true(
+      failed.state() isnt SSLHandshake,
+      "non-handshake bytes should have taken the session out of SSLHandshake")
+
+    // With an empty queue this test cannot fail whatever `read` does, so check
+    // the failure left something on it.
+    h.assert_ne[ULong](
+      0,
+      @ERR_peek_error(),
+      "the failed handshake left nothing on the thread's error queue")
+
+    // Nothing was written to server, so this read has nothing to return.
+    match \exhaustive\ server.read()
+    | let data: Array[U8] iso =>
+      h.fail(
+        "a read with no data returned " + (consume data).size().string()
+          + " bytes")
+    | None => None
+    end
+    h.assert_true(
+      server.state() is SSLReady,
+      "a session with nothing to read should still be SSLReady")
+
+    failed.dispose()
+    failed_peer.dispose()
+    client.dispose()
+    server.dispose()
+
+class \nodoc\ iso _TestSSLReadReportsGenuineError is UnitTest
+  """
+  A read whose record will not decrypt reports `SSLError`.
+
+  Emptying the thread's error queue before each OpenSSL call must not cost a
+  session the errors that are its own. Flipping a byte of an encrypted record
+  breaks its authentication tag, which gives the read a real failure to report.
+  """
+  fun name(): String => "net/ssl/SSL/read_reports_genuine_error"
+
+  fun apply(h: TestHelper) =>
+    (let client, let server) =
+      try
+        _TestSSLSessionPair(h)?
+      else
+        h.fail("could not establish an SSL session pair")
+        return
+      end
+
+    try
+      client.write("hello")?
+      var record = client.send()?
+      let last = record.size() - 1
+      record(last)? = record(last)? xor 0xFF
+      server.receive(consume record)
+    else
+      h.fail("could not send a corrupted record")
+      client.dispose()
+      server.dispose()
+      return
+    end
+
+    match \exhaustive\ server.read()
+    | let data: Array[U8] iso =>
+      h.fail(
+        "a corrupted record produced " + (consume data).size().string()
+          + " bytes")
+    | None => None
+    end
+    h.assert_true(
+      server.state() is SSLError,
+      "a record that will not decrypt should put the session in SSLError")
 
     client.dispose()
     server.dispose()

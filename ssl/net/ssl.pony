@@ -29,6 +29,7 @@ use @SSL_write[I32](ssl: Pointer[_SSL], buf: Pointer[U8] tag, len: I32)
 use @BIO_read[I32](bio: Pointer[_BIO] tag, buf: Pointer[U8] tag, len: I32)
 use @BIO_write[I32](bio: Pointer[_BIO] tag, buf: Pointer[U8] tag, len: I32)
 use @SSL_get_error[I32](ssl: Pointer[_SSL], ret: I32)
+use @ERR_clear_error[None]()
 use @BIO_ctrl_pending[USize](bio: Pointer[_BIO] tag)
 use @SSL_has_pending[I32](ssl: Pointer[_SSL]) if "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x"
 use @SSL_get_peer_certificate[Pointer[X509]](ssl: Pointer[_SSL]) if "openssl_1.1.x" or "libressl"
@@ -143,6 +144,7 @@ class SSL
       @SSL_set_accept_state(_ssl)
     else
       @SSL_set_connect_state(_ssl)
+      @ERR_clear_error()
       @SSL_do_handshake(_ssl)
     end
 
@@ -207,9 +209,11 @@ class SSL
       end
 
       _read_buf.undefined(offset + len)
+      @ERR_clear_error()
       @SSL_read(_ssl, _read_buf.cpointer(offset), len.i32())
     else
       _read_buf.undefined(offset + len)
+      @ERR_clear_error()
       let r =
         @SSL_read(_ssl, _read_buf.cpointer(offset), len.i32())
 
@@ -270,6 +274,7 @@ class SSL
     if _state isnt SSLReady then error end
 
     if data.size() > 0 then
+      @ERR_clear_error()
       @SSL_write(_ssl, data.cpointer(), data.size().i32())
     end
 
@@ -283,6 +288,7 @@ class SSL
     @BIO_write(_input, data.cpointer(), data.size().i32())
 
     if _state is SSLHandshake then
+      @ERR_clear_error()
       let r = @SSL_do_handshake(_ssl)
 
       if r > 0 then

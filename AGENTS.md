@@ -55,6 +55,12 @@ LibreSSL is mostly OpenSSL 1.1.x-compatible, but five differences need their own
 4. **`SSL_get_peer_certificate`** — LibreSSL keeps the pre-3.0.x name, not `SSL_get1_peer_certificate`.
 5. **`OPENSSL_INIT_new`/`OPENSSL_INIT_free`** — absent; init calls `OPENSSL_init_ssl` directly with no settings object.
 
+## The OpenSSL error queue
+
+The error queue belongs to the thread, not to the session. `SSL_get_error` reports what is on that queue, so it describes the call you are asking about only when the queue was empty before that call ran. Otherwise it reports an entry left by an earlier failure on the same thread, which may belong to a different session entirely.
+
+Every `SSL_*` I/O call gets `@ERR_clear_error()` immediately before it, whether or not its result reaches `SSL_get_error`. Some of them clear the queue themselves — `SSL_do_handshake` does — but that is undocumented and varies by backend, so don't work it out one call site at a time.
+
 ## Dispose and `_final`
 
 `dispose()` frees the OpenSSL handle and nulls the pointer field, so any later call hands OpenSSL a null. Most of the C functions dereference it without checking, and the ones that don't vary by backend — `SSL_CTX_ctrl` returns 0 for a null context on OpenSSL but dereferences it on LibreSSL. Check `is_null()` before calling into OpenSSL; don't count on a backend being forgiving.
