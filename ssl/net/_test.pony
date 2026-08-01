@@ -1696,12 +1696,12 @@ class \nodoc\ iso _TestSSLReceiveVerifyOffNeverAuthFails is UnitTest
 class \nodoc\ iso _TestSSLReceiveUnprovenCertificate is UnitTest
   """
   A verifying session whose peer presents a certificate it cannot prove it
-  holds reports `SSLError`, not `SSLAuthFail`.
+  holds reports `SSLAuthFail`.
 
   A certificate is public, so presenting a copy of one is what an impersonator
-  without the matching key does. The chain still verifies, and OpenSSL reports
-  the failure without a certificate result, so `SSLAuthFail`'s three cases do
-  not cover it.
+  without the matching key does. The chain verifies — the certificate is
+  genuine — but the handshake signature check fails, and the peer certificate
+  is still stored in the session.
 
   Flipping a byte of the server's flight is what breaks the signature. It has
   to land inside the key exchange, past the certificate and short of the last
@@ -1744,8 +1744,8 @@ class \nodoc\ iso _TestSSLReceiveUnprovenCertificate is UnitTest
     end
 
     h.assert_true(
-      client.state() is SSLError,
-      "a certificate the peer cannot prove it holds should report SSLError")
+      client.state() is SSLAuthFail,
+      "a certificate the peer cannot prove it holds should report SSLAuthFail")
 
     client.dispose()
     server.dispose()
