@@ -6,6 +6,7 @@ All notable changes to this project will be documented in this file. This projec
 
 ### Fixed
 
+- Fix connections being closed after an unrelated SSL failure ([PR #116](https://github.com/ponylang/ssl/pull/116))
 
 ### Added
 
