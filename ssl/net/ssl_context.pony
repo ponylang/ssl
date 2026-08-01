@@ -155,9 +155,9 @@ class val SSLContext
 
   fun val client(hostname: String = ""): SSL iso^ ? =>
     """
-    Create a client-side SSL session. If a hostname is supplied, the server
-    side certificate must be valid for that hostname. Raises an error if the
-    context has been disposed.
+    Create a client-side SSL session. If a hostname is supplied and client
+    verification is on, the server side certificate must be valid for that
+    hostname. Raises an error if the context has been disposed.
 
     The session holds the context, so the context lives for as long as the
     session can handshake.
@@ -299,12 +299,21 @@ class val SSLContext
   fun ref set_client_verify(state: Bool) =>
     """
     Set to true to require verification. Defaults to true.
+
+    A client session created with `state` false never reports `SSLAuthFail`,
+    and an `SSLConnection` wrapping one never calls the wrapped protocol's
+    `auth_failed`.
     """
     _client_verify = state
 
   fun ref set_server_verify(state: Bool) =>
     """
     Set to true to require verification. Defaults to false.
+
+    A server session created with `state` false never reports `SSLAuthFail`,
+    and an `SSLConnection` wrapping one never calls the wrapped protocol's
+    `auth_failed`. It sends no certificate request, so it has no peer identity
+    to reject.
     """
     _server_verify = state
 

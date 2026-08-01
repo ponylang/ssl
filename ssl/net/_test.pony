@@ -21,6 +21,16 @@ actor \nodoc\ Main is TestList
       _TestALPNProtocolListOffsetOfRoundtrip))
     test(_TestALPNStandardProtocolResolver)
     test(_TestSSLHandshakeInMemory)
+    test(_TestSSLReceiveNonTLSBytes)
+    test(_TestSSLReceiveUntrustedChain)
+    test(_TestSSLReceivePeerRejectedOurCert)
+    test(_TestSSLReceiveHostnameMismatch)
+    test(_TestSSLReceiveNoSharedVersion)
+    test(_TestSSLReceiveNoPeerCertificate)
+    test(_TestSSLReceiveVerifyOffNeverAuthFails)
+    test(_TestSSLReceiveUnprovenCertificate)
+    test(_TestSSLReceiveUntrustedClientChain)
+    test(_TestERRCodeFields)
     test(_TestSSLFailedHandshakeDoesNotAffectLaterRead)
     test(_TestSSLReadReportsGenuineError)
     test(_TestSSLReadAfterErrorReturnsOnlyDecryptedBytes)
@@ -67,6 +77,7 @@ actor \nodoc\ Main is TestList
     test(_TestTCPSSLClientVerifyFalseWithHostname)
     test(_TestTCPSSLPeerCertificateVerify)
     test(_TestTCPSSLPeerCertificateHostnameMismatch)
+    test(_TestTCPSSLNonTLSPeerDoesNotAuthFail)
     ifdef windows then
       test(_TestWindowsLoadRootCertificates)
     else
@@ -300,7 +311,7 @@ class \nodoc\ iso _TestTCPSSLExpect is UnitTest
 
     (let ssl_client, let ssl_server) =
       try
-        _TestSSLContext(h)?
+        _TestSSLDefaultSessions(h)?
       else
         h.fail("ssl stuff failed")
         return
@@ -323,7 +334,7 @@ class \nodoc\ iso _TestTCPSSLWritev is UnitTest
 
     (let ssl_client, let ssl_server) =
       try
-        _TestSSLContext(h)?
+        _TestSSLDefaultSessions(h)?
       else
         h.fail("ssl stuff failed")
         return
@@ -358,7 +369,7 @@ class \nodoc\ iso _TestTCPSSLMute is UnitTest
 
     (let ssl_client, let ssl_server) =
       try
-        _TestSSLContext(h)?
+        _TestSSLDefaultSessions(h)?
       else
         h.fail("ssl stuff failed")
         return
@@ -397,7 +408,7 @@ class \nodoc\ iso _TestTCPSSLUnmute is UnitTest
 
     (let ssl_client, let ssl_server) =
       try
-        _TestSSLContext(h)?
+        _TestSSLDefaultSessions(h)?
       else
         h.fail("ssl stuff failed")
         return
@@ -683,6 +694,66 @@ class \nodoc\ _TestTCPSSLPeerCertificateHostnameMismatchServerNotify
   fun ref connect_failed(conn: TCPConnection ref) =>
     _h.fail_action("server connect failed")
 
+class \nodoc\ iso _TestTCPSSLNonTLSPeerDoesNotAuthFail is UnitTest
+  """
+  A peer that sends bytes that are not TLS does not reach the wrapped
+  protocol's `auth_failed`.
+
+  `SSLConnection` calls `auth_failed` on `SSLAuthFail`, so a session that
+  reports that state for a peer speaking something other than TLS tells the
+  application its authentication failed. The server here is a plain
+  `TCPConnectionNotify` with no SSL at all, answering a TLS client with HTTP.
+  """
+  fun name(): String => "net/TCPSSL.non_tls_peer_does_not_auth_fail"
+  fun exclusion_group(): String => "network"
+
+  fun ref apply(h: TestHelper) =>
+    h.expect_action("client closed")
+
+    let ssl_client =
+      try
+        _TestSSLContext(h where authority = true, client_verify = true)?
+          .client("localhost")?
+      else
+        h.fail("failed getting ssl client session")
+        return
+      end
+
+    _TestTCP(h)(
+      SSLConnection(_TestTCPNonTLSPeerClientNotify(h), consume ssl_client),
+      _TestTCPNonTLSPeerServerNotify(h))
+
+class \nodoc\ _TestTCPNonTLSPeerClientNotify is TCPConnectionNotify
+  let _h: TestHelper
+
+  new iso create(h: TestHelper) =>
+    _h = h
+
+  fun ref connected(conn: TCPConnection ref) =>
+    _h.fail("the handshake completed against a peer that did not speak TLS")
+
+  fun ref connect_failed(conn: TCPConnection ref) =>
+    _h.fail_action("client connect failed")
+
+  fun ref auth_failed(conn: TCPConnection ref) =>
+    _h.fail("auth_failed fired for a peer that did not speak TLS")
+
+  fun ref closed(conn: TCPConnection ref) =>
+    _h.complete_action("client closed")
+    _h.complete(true)
+
+class \nodoc\ _TestTCPNonTLSPeerServerNotify is TCPConnectionNotify
+  let _h: TestHelper
+
+  new iso create(h: TestHelper) =>
+    _h = h
+
+  fun ref accepted(conn: TCPConnection ref) =>
+    conn.write("HTTP/1.1 400 Bad Request\r\n\r\n")
+
+  fun ref connect_failed(conn: TCPConnection ref) =>
+    _h.fail_action("server connect failed")
+
 class \nodoc\ iso _TestTCPSSLThrottle is UnitTest
   """
   Test that when we experience backpressure when sending that the `throttled`
@@ -709,7 +780,7 @@ class \nodoc\ iso _TestTCPSSLThrottle is UnitTest
 
     (let ssl_client, let ssl_server) =
       try
-        _TestSSLContext(h)?
+        _TestSSLDefaultSessions(h)?
       else
         h.fail("ssl stuff failed")
         return
@@ -1086,24 +1157,19 @@ class \nodoc\ _TestTCPUnmuteReceiveNotify is TCPConnectionNotify
   fun ref connect_failed(conn: TCPConnection ref) =>
     _h.fail_action("receiver connect failed")
 
-primitive \nodoc\ _TestSSLContext
+primitive \nodoc\ _TestSSLDefaultSessions
   fun val apply(h: TestHelper): (SSL iso^, SSL iso^) ? =>
+    """
+    A client and a server session from a context that trusts the test
+    certificate, presents it, and verifies neither side.
+    """
     let sslctx =
-      try
-        let auth = FileAuth(h.env.root)
-        recover val
-          SSLContext
-            .> set_authority(FilePath(auth, "assets/cert.pem"))?
-            .> set_cert(
-                FilePath(auth, "assets/cert.pem"),
-                FilePath(auth, "assets/key.pem"))?
-            .> set_client_verify(false)
-            .> set_server_verify(false)
-        end
-      else
-        h.fail("set_cert failed")
-        error
-      end
+      _TestSSLContext(
+        h
+        where cert = true,
+          authority = true,
+          client_verify = false,
+          server_verify = false)?
 
     let ssl_client =
       try
@@ -1149,6 +1215,50 @@ primitive \nodoc\ _TestSSLCorruptRecord
     // everything the sender wrote.
     _TestSSLTransfer(sender, receiver)?
 
+primitive \nodoc\ _TestSSLContext
+  fun val apply(
+    h: TestHelper,
+    cert: Bool = false,
+    authority: Bool = false,
+    client_verify: Bool = true,
+    server_verify: Bool = false,
+    min_proto: (ULong | None) = None,
+    max_proto: (ULong | None) = None)
+    : SSLContext val ?
+  =>
+    """
+    A context with no certificate and no authority until asked for them. Every
+    setting is a parameter, so a test that turns on what it is testing shows it
+    at the call site.
+    """
+    let auth = FileAuth(h.env.root)
+
+    try
+      recover val
+        let ctx: SSLContext ref = SSLContext
+        if cert then
+          ctx.set_cert(
+            FilePath(auth, "assets/cert.pem"),
+            FilePath(auth, "assets/key.pem"))?
+        end
+        if authority then
+          ctx.set_authority(FilePath(auth, "assets/cert.pem"))?
+        end
+        ctx.set_client_verify(client_verify)
+        ctx.set_server_verify(server_verify)
+        match min_proto
+        | let v: ULong => ctx.set_min_proto_version(v)?
+        end
+        match max_proto
+        | let v: ULong => ctx.set_max_proto_version(v)?
+        end
+        ctx
+      end
+    else
+      h.fail("ssl context setup failed")
+      error
+    end
+
 primitive \nodoc\ _TestSSLSessionPair
   fun val apply(h: TestHelper): (SSL, SSL) ? =>
     """
@@ -1164,7 +1274,7 @@ primitive \nodoc\ _TestSSLSessionPair
     A client and a server session from the standard test context, before any
     handshake. Both are in `SSLHandshake`.
     """
-    (let client_session, let server_session) = _TestSSLContext(h)?
+    (let client_session, let server_session) = _TestSSLDefaultSessions(h)?
     let client: SSL = consume client_session
     let server: SSL = consume server_session
     (client, server)
@@ -1191,31 +1301,96 @@ primitive \nodoc\ _TestSSLSessionPair
     _handshake(h, client, server)?
     (client, server)
 
+  fun val _fresh_from(
+    h: TestHelper,
+    client_ctx: SSLContext val,
+    server_ctx: SSLContext val,
+    hostname: String = "")
+    : (SSL, SSL) ?
+  =>
+    """
+    A client session from `client_ctx` and a server session from `server_ctx`,
+    before any handshake. Both are in `SSLHandshake`.
+    """
+    let client: SSL =
+      try
+        client_ctx.client(hostname)?
+      else
+        h.fail("failed getting ssl client session")
+        error
+      end
+    let server: SSL =
+      try
+        server_ctx.server()?
+      else
+        h.fail("failed getting ssl server session")
+        client.dispose()
+        error
+      end
+    (client, server)
+
+  fun val attempt(
+    h: TestHelper,
+    client_ctx: SSLContext val,
+    server_ctx: SSLContext val,
+    hostname: String = "")
+    : (SSL, SSL) ?
+  =>
+    """
+    A client session from `client_ctx` and a server session from `server_ctx`,
+    handed each other's bytes until neither is still handshaking or the round
+    cap stops it. A handshake that does not complete is a result to assert on
+    rather than a reason to fail the test, which is what separates this from
+    `apply`. Assert on the state you expect; a session left in `SSLHandshake`
+    fails that assertion.
+    """
+    (let client, let server) = _fresh_from(h, client_ctx, server_ctx, hostname)?
+    _pump(client, server)?
+    (client, server)
+
+  fun val _pump(client: SSL, server: SSL): USize ? =>
+    """
+    Hand each side's outgoing bytes to the other until neither is still
+    handshaking, and return how many rounds that took. Stops at `_max_rounds`
+    whether or not the sessions settled, so a caller that needs them settled
+    has to check.
+    """
+    var rounds: USize = 0
+
+    while
+      ((client.state() is SSLHandshake) or (server.state() is SSLHandshake))
+        and (rounds < _max_rounds())
+    do
+      rounds = rounds + 1
+      // Both directions run every round, so a side that has already failed
+      // still hands its alert to the other.
+      _TestSSLTransfer(client, server)?
+      _TestSSLTransfer(server, client)?
+    end
+
+    rounds
+
+  fun val _max_rounds(): USize =>
+    """
+    How many rounds a handshake takes depends on the TLS version and the
+    backend, so this is a backstop against a session that never settles, not a
+    count anything should rely on.
+    """
+    20
+
   fun val _handshake(h: TestHelper, client: SSL, server: SSL) ? =>
     """
     Drive a handshake to completion by handing each side's outgoing bytes
     straight to the other. Reports the reason and raises an error if the
     handshake does not finish.
     """
-    // How many rounds a handshake takes depends on the TLS version and the
-    // backend, so this is a backstop against a session that never settles,
-    // not a count anything should rely on.
-    let max_rounds: USize = 20
-    var rounds: USize = 0
+    let rounds = _pump(client, server)?
 
-    while
-      (client.state() is SSLHandshake) or (server.state() is SSLHandshake)
-    do
-      if rounds == max_rounds then
-        h.fail(
-          "in memory SSL handshake did not finish in "
-            + max_rounds.string() + " rounds")
-        error
-      end
-      rounds = rounds + 1
-
-      _TestSSLTransfer(client, server)?
-      _TestSSLTransfer(server, client)?
+    if (client.state() is SSLHandshake) or (server.state() is SSLHandshake) then
+      h.fail(
+        "in memory SSL handshake did not finish in " + rounds.string()
+          + " rounds")
+      error
     end
 
     if (client.state() isnt SSLReady) or (server.state() isnt SSLReady) then
@@ -1268,6 +1443,391 @@ class \nodoc\ iso _TestSSLHandshakeInMemory is UnitTest
     client.dispose()
     server.dispose()
 
+class \nodoc\ iso _TestSSLReceiveNonTLSBytes is UnitTest
+  """
+  A verifying session handed bytes that are not a TLS record reports
+  `SSLError`.
+
+  Those bytes fail the handshake at the SSL layer, which is where a chain that
+  will not verify fails too. Reporting `SSLAuthFail` for them tells a caller
+  the peer could not be authenticated when nothing about the peer's identity
+  was in question.
+  """
+  fun name(): String => "net/ssl/SSL.receive/non_tls_bytes"
+
+  fun apply(h: TestHelper) =>
+    let client =
+      try
+        _TestSSLContext(h where authority = true, client_verify = true)?
+          .client()?
+      else
+        h.fail("could not create a client session")
+        return
+      end
+
+    client.receive("NOT AN SSL HANDSHAKE\r\n")
+
+    h.assert_true(
+      client.state() is SSLError,
+      "bytes that are not a TLS record should report SSLError")
+
+    client.dispose()
+
+class \nodoc\ iso _TestSSLReceiveUntrustedChain is UnitTest
+  """
+  A verifying session whose peer presents a chain it does not trust reports
+  `SSLAuthFail`.
+
+  The client here trusts no authority at all, so the server's certificate has
+  nothing to chain to.
+  """
+  fun name(): String => "net/ssl/SSL.receive/untrusted_chain"
+
+  fun apply(h: TestHelper) =>
+    (let client, let server) =
+      try
+        _TestSSLSessionPair.attempt(
+          h,
+          _TestSSLContext(h where client_verify = true)?,
+          _TestSSLContext(h where cert = true)?)?
+      else
+        h.fail("could not create an SSL session pair")
+        return
+      end
+
+    h.assert_true(
+      client.state() is SSLAuthFail,
+      "a chain the client does not trust should report SSLAuthFail")
+
+    client.dispose()
+    server.dispose()
+
+class \nodoc\ iso _TestSSLReceivePeerRejectedOurCert is UnitTest
+  """
+  A session whose peer rejects the certificate it presented reports
+  `SSLError`.
+
+  The client trusts no authority, so it rejects the server's certificate and
+  sends an alert. What reaches the server is that alert, not a failure of the
+  server's own verification, so the server has not failed to authenticate
+  anyone.
+  """
+  fun name(): String => "net/ssl/SSL.receive/peer_rejected_our_cert"
+
+  fun apply(h: TestHelper) =>
+    (let client, let server) =
+      try
+        _TestSSLSessionPair.attempt(
+          h,
+          _TestSSLContext(h where client_verify = true)?,
+          _TestSSLContext(
+            h where cert = true, authority = true, server_verify = true)?)?
+      else
+        h.fail("could not create an SSL session pair")
+        return
+      end
+
+    h.assert_true(
+      server.state() is SSLError,
+      "a peer that rejected our certificate should report SSLError")
+
+    client.dispose()
+    server.dispose()
+
+class \nodoc\ iso _TestSSLReceiveHostnameMismatch is UnitTest
+  """
+  A verifying session whose peer presents a certificate that is not valid for
+  the hostname reports `SSLAuthFail`.
+
+  The handshake itself succeeds here, because the certificate chains to an
+  authority the client trusts. `SSL._verify_hostname` is what rejects it.
+  """
+  fun name(): String => "net/ssl/SSL.receive/hostname_mismatch"
+
+  fun apply(h: TestHelper) =>
+    (let client, let server) =
+      try
+        let client_ctx =
+          _TestSSLContext(h where authority = true, client_verify = true)?
+        let server_ctx = _TestSSLContext(h where cert = true)?
+        _TestSSLSessionPair.attempt(
+          h, client_ctx, server_ctx where hostname = "nomatch.example.com")?
+      else
+        h.fail("could not create an SSL session pair")
+        return
+      end
+
+    h.assert_true(
+      client.state() is SSLAuthFail,
+      "a certificate that is not valid for the hostname should report "
+        + "SSLAuthFail")
+
+    client.dispose()
+    server.dispose()
+
+class \nodoc\ iso _TestSSLReceiveNoSharedVersion is UnitTest
+  """
+  Two verifying sessions with no protocol version in common both report
+  `SSLError`.
+
+  Neither side got as far as a certificate, so neither failed to authenticate
+  the other.
+  """
+  fun name(): String => "net/ssl/SSL.receive/no_shared_version"
+
+  fun apply(h: TestHelper) =>
+    (let client, let server) =
+      try
+        _TestSSLSessionPair.attempt(
+          h,
+          _TestSSLContext(
+            h
+            where authority = true,
+              client_verify = true,
+              max_proto = TLS1u2Version())?,
+          _TestSSLContext(
+            h
+            where cert = true,
+              authority = true,
+              server_verify = true,
+              min_proto = TLS1u3Version())?)?
+      else
+        h.fail("could not create an SSL session pair")
+        return
+      end
+
+    h.assert_true(
+      client.state() is SSLError,
+      "a client with no protocol version in common should report SSLError")
+    h.assert_true(
+      server.state() is SSLError,
+      "a server with no protocol version in common should report SSLError")
+
+    client.dispose()
+    server.dispose()
+
+class \nodoc\ iso _TestSSLReceiveNoPeerCertificate is UnitTest
+  """
+  A verifying session whose peer presents no certificate at all reports
+  `SSLAuthFail`.
+
+  This is a server that asked its client to authenticate and got nothing back.
+  No chain was checked, so the verify result is `X509_V_OK` and the error queue
+  is the only place the failure is reported.
+
+  Both sides are pinned to TLS 1.3, which is what leaves the client `SSLReady`:
+  it finishes its side of the handshake before the server's alert reaches it.
+  Under TLS 1.2 the same exchange leaves the client in `SSLError`.
+  """
+  fun name(): String => "net/ssl/SSL.receive/no_peer_certificate"
+
+  fun apply(h: TestHelper) =>
+    (let client, let server) =
+      try
+        _TestSSLSessionPair.attempt(
+          h,
+          _TestSSLContext(
+            h
+            where authority = true,
+              client_verify = true,
+              min_proto = TLS1u3Version())?,
+          _TestSSLContext(
+            h
+            where cert = true,
+              authority = true,
+              server_verify = true,
+              min_proto = TLS1u3Version())?)?
+      else
+        h.fail("could not create an SSL session pair")
+        return
+      end
+
+    h.assert_true(
+      server.state() is SSLAuthFail,
+      "a peer that presented no certificate should report SSLAuthFail")
+    h.assert_true(
+      client.state() is SSLReady,
+      "the client accepted the server and finished before the alert")
+
+    client.dispose()
+    server.dispose()
+
+class \nodoc\ iso _TestSSLReceiveVerifyOffNeverAuthFails is UnitTest
+  """
+  A session created with verification off reports `SSLError` when its handshake
+  fails, whatever its peer's certificate did.
+
+  OpenSSL verifies the peer's chain even when the session is set not to enforce
+  the result, so this client carries a failed verify result for a chain it was
+  never asked to check. The server then rejects the empty certificate the
+  client sends, and that alert is what fails the handshake. Reporting
+  `SSLAuthFail` here would attribute the failure to a check the caller turned
+  off.
+
+  Each of the client's settings matters, and changing any one of them stops
+  the test exercising the guard. Load an authority and the verify result is
+  `X509_V_OK`. Give the client a certificate and it satisfies the server, so
+  both sides reach `SSLReady`. Lift the TLS 1.2 cap and the client reaches
+  `SSLReady` before the server's alert arrives.
+  """
+  fun name(): String => "net/ssl/SSL.receive/verify_off_never_auth_fails"
+
+  fun apply(h: TestHelper) =>
+    (let client, let server) =
+      try
+        _TestSSLSessionPair.attempt(
+          h,
+          _TestSSLContext(
+            h where client_verify = false, max_proto = TLS1u2Version())?,
+          _TestSSLContext(
+            h where cert = true, authority = true, server_verify = true)?)?
+      else
+        h.fail("could not create an SSL session pair")
+        return
+      end
+
+    h.assert_true(
+      client.state() is SSLError,
+      "a session that was not asked to verify should report SSLError")
+
+    client.dispose()
+    server.dispose()
+
+class \nodoc\ iso _TestSSLReceiveUnprovenCertificate is UnitTest
+  """
+  A verifying session whose peer presents a certificate it cannot prove it
+  holds reports `SSLError`, not `SSLAuthFail`.
+
+  A certificate is public, so presenting a copy of one is what an impersonator
+  without the matching key does. The chain still verifies, and OpenSSL reports
+  the failure without a certificate result, so `SSLAuthFail`'s three cases do
+  not cover it.
+
+  Flipping a byte of the server's flight is what breaks the signature. It has
+  to land inside the key exchange, past the certificate and short of the last
+  message, and it needs TLS 1.2, where those messages are not encrypted.
+  """
+  fun name(): String => "net/ssl/SSL.receive/unproven_certificate"
+
+  fun apply(h: TestHelper) =>
+    (let client, let server) =
+      try
+        _TestSSLSessionPair._fresh_from(
+          h,
+          _TestSSLContext(
+            h
+            where authority = true,
+              client_verify = true,
+              max_proto = TLS1u2Version())?,
+          _TestSSLContext(
+            h
+            where cert = true,
+              min_proto = TLS1u2Version(),
+              max_proto = TLS1u2Version())?)?
+      else
+        h.fail("could not create an SSL session pair")
+        return
+      end
+
+    try
+      _TestSSLTransfer(client, server)?
+
+      let flight = server.send()?
+      let at = flight.size() - 80
+      flight(at)? = flight(at)? xor 0xFF
+      client.receive(consume flight)
+    else
+      h.fail("could not corrupt the server's flight")
+      client.dispose()
+      server.dispose()
+      return
+    end
+
+    h.assert_true(
+      client.state() is SSLError,
+      "a certificate the peer cannot prove it holds should report SSLError")
+
+    client.dispose()
+    server.dispose()
+
+class \nodoc\ iso _TestERRCodeFields is UnitTest
+  """
+  `_ERRLibrary.of` and `_ERRReason.of` take the library and the reason out of
+  an error code the way each backend's `ERR_GET_LIB` and `ERR_GET_REASON` do.
+
+  The words below are ones the backend produced for
+  `SSL_R_PEER_DID_NOT_RETURN_A_CERTIFICATE`. A handshake exercises these two
+  methods only against the backend it runs on, so a shift that is wrong for a
+  different backend still passes one.
+  """
+  fun name(): String => "net/ssl/_ERRCode/fields"
+
+  fun apply(h: TestHelper) =>
+    let code: ULong =
+      ifdef "openssl_3.0.x" or "openssl_4.0.x" then
+        0x0A0000C7
+      elseif "openssl_1.1.x" or "libressl" then
+        0x14FFF0C7
+      else
+        compile_error "You must select an SSL version to use."
+      end
+
+    h.assert_eq[ULong](
+      _ERRLibrary.ssl(),
+      _ERRLibrary.of(code),
+      "the library the recorded word carries")
+    h.assert_eq[ULong](
+      _ERRReason.peer_did_not_return_a_certificate(),
+      _ERRReason.of(code),
+      "the reason the recorded word carries")
+
+    // 199 is `ASN1_R_UNKNOWN_SIGNATURE_ALGORITHM` in libcrypto's ASN.1, which
+    // is library 13. The reason alone does not say a peer sent no certificate.
+    let asn1: ULong =
+      ifdef "openssl_3.0.x" or "openssl_4.0.x" then
+        (13 << 23) or 199
+      elseif "openssl_1.1.x" or "libressl" then
+        (13 << 24) or 199
+      else
+        compile_error "You must select an SSL version to use."
+      end
+
+    h.assert_eq[ULong](
+      13, _ERRLibrary.of(asn1), "the library an ASN.1 word carries")
+    h.assert_eq[ULong](
+      _ERRReason.peer_did_not_return_a_certificate(),
+      _ERRReason.of(asn1),
+      "an ASN.1 word can carry the same reason number")
+
+class \nodoc\ iso _TestSSLReceiveUntrustedClientChain is UnitTest
+  """
+  A verifying server whose client presents a chain it does not trust reports
+  `SSLAuthFail`.
+
+  The same failure as `net/ssl/SSL.receive/untrusted_chain`, from the other
+  side of the connection.
+  """
+  fun name(): String => "net/ssl/SSL.receive/untrusted_client_chain"
+
+  fun apply(h: TestHelper) =>
+    (let client, let server) =
+      try
+        _TestSSLSessionPair.attempt(
+          h,
+          _TestSSLContext(h where cert = true, client_verify = false)?,
+          _TestSSLContext(h where cert = true, server_verify = true)?)?
+      else
+        h.fail("could not create an SSL session pair")
+        return
+      end
+
+    h.assert_true(
+      server.state() is SSLAuthFail,
+      "a client chain the server does not trust should report SSLAuthFail")
+
+    client.dispose()
+    server.dispose()
+
 class \nodoc\ iso _TestSSLFailedHandshakeDoesNotAffectLaterRead is UnitTest
   """
   A handshake that fails on one session does not put a session that reads
@@ -1294,9 +1854,14 @@ class \nodoc\ iso _TestSSLFailedHandshakeDoesNotAffectLaterRead is UnitTest
 
     // A handshake clears the error queue, so the failure has to be staged after
     // the healthy pair handshakes, not before.
+    // A verifying session takes entries off the queue to classify its own
+    // failure, so the session staging this one must not be verifying.
     (let failed, let failed_peer) =
       try
-        _TestSSLSessionPair.fresh(h)?
+        _TestSSLSessionPair._fresh_from(
+          h,
+          _TestSSLContext(h where client_verify = false)?,
+          _TestSSLContext(h where cert = true)?)?
       else
         h.fail("could not create an SSL session pair")
         client.dispose()
@@ -2603,7 +3168,7 @@ class \nodoc\ iso _TestSSLCanSendOnValReceiver is UnitTest
 
   fun apply(h: TestHelper) =>
     try
-      (let client: SSL val, _) = _TestSSLContext(h)?
+      (let client: SSL val, _) = _TestSSLDefaultSessions(h)?
 
       h.assert_true(
         client.can_send(),

@@ -29,7 +29,9 @@ use @SSL_write[I32](ssl: Pointer[_SSL], buf: Pointer[U8] tag, len: I32)
 use @BIO_read[I32](bio: Pointer[_BIO] tag, buf: Pointer[U8] tag, len: I32)
 use @BIO_write[I32](bio: Pointer[_BIO] tag, buf: Pointer[U8] tag, len: I32)
 use @SSL_get_error[I32](ssl: Pointer[_SSL], ret: I32)
+use @SSL_get_verify_result[ILong](ssl: Pointer[_SSL] tag)
 use @ERR_clear_error[None]()
+use @ERR_get_error[ULong]()
 use @BIO_ctrl_pending[USize](bio: Pointer[_BIO] tag)
 use @SSL_has_pending[I32](ssl: Pointer[_SSL]) if "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x"
 use @SSL_get_peer_certificate[Pointer[X509]](ssl: Pointer[_SSL]) if "openssl_1.1.x" or "libressl"
@@ -48,6 +50,57 @@ primitive _SSLErrorCode
   fun syscall(): I32 => 5
   fun zero_return(): I32 => 6
 
+primitive _X509VerifyResult
+  """
+  `SSL_get_verify_result` results, from `openssl/x509_vfy.h`.
+  """
+  fun ok(): ILong => 0
+
+primitive _ERRLibrary
+  """
+  Which OpenSSL library raised an error, and the one value this package
+  compares that against. `of` takes the field from where each backend's
+  `ERR_GET_LIB` does, because OpenSSL 3.0 moved it.
+
+  Any OpenSSL library can put an entry on the thread's error queue, so `ssl()`
+  is one of several libraries `of` can name. OpenSSL 3.0 also packs system
+  errors into the same word, under a flag that neither `_ERRLibrary.of` nor
+  `_ERRReason.of` reads. A system-flagged word decodes to a library that is not
+  `ssl()`, so it cannot match.
+  """
+  fun of(code: ULong): ULong =>
+    ifdef "openssl_3.0.x" or "openssl_4.0.x" then
+      (code >> 23) and 0xFF
+    elseif "openssl_1.1.x" or "libressl" then
+      (code >> 24) and 0xFF
+    else
+      compile_error "You must select an SSL version to use."
+    end
+
+  fun ssl(): ULong => 20
+
+primitive _ERRReason
+  """
+  Why an OpenSSL library raised an error, and the one value this package
+  compares that against. `of` masks the field the way each backend's
+  `ERR_GET_REASON` does, because OpenSSL 3.0 widened it.
+
+  A reason number means one thing in the library that raised it and something
+  else in another, so compare it only after `_ERRLibrary.of` has named that
+  library. 199 is `SSL_R_PEER_DID_NOT_RETURN_A_CERTIFICATE` in libssl and
+  `ASN1_R_UNKNOWN_SIGNATURE_ALGORITHM` in libcrypto's ASN.1.
+  """
+  fun of(code: ULong): ULong =>
+    ifdef "openssl_3.0.x" or "openssl_4.0.x" then
+      code and 0x7FFFFF
+    elseif "openssl_1.1.x" or "libressl" then
+      code and 0xFFF
+    else
+      compile_error "You must select an SSL version to use."
+    end
+
+  fun peer_did_not_return_a_certificate(): ULong => 199
+
 primitive SSLHandshake
   """
   The session is still handshaking.
@@ -55,7 +108,16 @@ primitive SSLHandshake
 
 primitive SSLAuthFail
   """
-  The peer's certificate could not be verified.
+  The session required a certificate from its peer and did not get an
+  acceptable one. The chain did not verify, or the certificate was not valid
+  for the hostname the session was created with, or the peer presented none at
+  all.
+
+  Two failures a caller might expect here report `SSLError` instead: a peer
+  that presents a certificate it cannot prove it holds, and one whose
+  certificate will not parse. A session created with verification off does not
+  reach this state at all, and neither does a session whose only failure was
+  its peer rejecting the certificate the session presented.
   """
 
 primitive SSLReady
@@ -65,7 +127,12 @@ primitive SSLReady
 
 primitive SSLError
   """
-  The session failed.
+  The session failed for a reason other than the one `SSLAuthFail` names. A
+  session reports this when its peer did not speak TLS, shared no protocol
+  version, rejected the certificate the session presented, presented a
+  certificate it could not prove it holds, or presented one that would not
+  parse. A session created with verification off reports it for every failure,
+  and so does any session that fails after its handshake.
   """
 
 primitive SSLDisposed
@@ -293,7 +360,8 @@ class SSL
         _verify_hostname()
       else
         match @SSL_get_error(_ssl, r)
-        | _SSLErrorCode.ssl() => _state = SSLAuthFail
+        | _SSLErrorCode.ssl() =>
+          _state = if _peer_auth_failed() then SSLAuthFail else SSLError end
         | _SSLErrorCode.syscall() | _SSLErrorCode.zero_return() =>
           _state = SSLError
         end
@@ -351,6 +419,47 @@ class SSL
     if not _ssl.is_null() then
       @SSL_free(_ssl)
     end
+
+  fun _peer_auth_failed(): Bool =>
+    """
+    Whether the `SSL_ERROR_SSL` the caller just got from `SSL_do_handshake` was
+    this session rejecting its peer's certificate.
+
+    True for a chain that did not verify and for a peer that sent no
+    certificate when one was required. False for a peer that sent a certificate
+    it could not prove it holds, and for one whose certificate would not parse:
+    OpenSSL reports those as SSL-layer errors that name no certificate result,
+    and there is no reason code for them that means the same thing on every
+    backend.
+
+    Callers must have checked that `_ssl` is not null, and must arrive with the
+    thread's error queue as `SSL_do_handshake` left it. A peer that sent no
+    certificate leaves its reason only on that queue, so an OpenSSL call that
+    clears the queue in between loses it and this returns false.
+    """
+    if not _verify then return false end
+
+    if @SSL_get_verify_result(_ssl) != _X509VerifyResult.ok() then
+      return true
+    end
+
+    // A failure inside libcrypto puts its own entry on the queue before libssl
+    // puts this one there, so the entry to look at is not always the first.
+    // Taking entries off is safe because every `SSL_*` call clears the queue
+    // before it runs.
+    var code = @ERR_get_error()
+    while code != 0 do
+      if
+        (_ERRLibrary.of(code) == _ERRLibrary.ssl())
+          and (_ERRReason.of(code)
+            == _ERRReason.peer_did_not_return_a_certificate())
+      then
+        return true
+      end
+      code = @ERR_get_error()
+    end
+
+    false
 
   fun ref _verify_hostname() =>
     """

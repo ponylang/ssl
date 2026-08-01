@@ -8,12 +8,14 @@ All notable changes to this project will be documented in this file. This projec
 
 - Fix connections being closed after an unrelated SSL failure ([PR #116](https://github.com/ponylang/ssl/pull/116))
 - Fix SSL sessions returning uninitialized memory ([PR #124](https://github.com/ponylang/ssl/pull/124))
+- Fix handshake failures being reported as authentication failures ([PR #126](https://github.com/ponylang/ssl/pull/126))
 
 ### Added
 
 
 ### Changed
 
+- Report SSLAuthFail only for a peer certificate the session would not accept ([PR #126](https://github.com/ponylang/ssl/pull/126))
 
 ## [3.0.0] - 2026-07-10
 
