@@ -109,15 +109,17 @@ primitive SSLHandshake
 primitive SSLAuthFail
   """
   The session required a certificate from its peer and did not get an
-  acceptable one. The chain did not verify, or the certificate was not valid
-  for the hostname the session was created with, or the peer presented none at
-  all.
+  acceptable one. The chain did not verify, the certificate was not valid for
+  the hostname the session was created with, the peer could not prove it holds
+  the key matching the certificate it presented, or the peer presented no
+  certificate at all.
 
-  Two failures a caller might expect here report `SSLError` instead: a peer
-  that presents a certificate it cannot prove it holds, and one whose
-  certificate will not parse. A session created with verification off does not
-  reach this state at all, and neither does a session whose only failure was
-  its peer rejecting the certificate the session presented.
+  A peer whose certificate will not parse reports `SSLError` instead: the
+  failure happens before chain verification, so it is not distinguishable from
+  a failure that had nothing to do with a certificate. A session created with
+  verification off does not reach this state at all, and neither does a
+  session whose only failure was its peer rejecting the certificate the
+  session presented.
   """
 
 primitive SSLReady
@@ -129,10 +131,9 @@ primitive SSLError
   """
   The session failed for a reason other than the one `SSLAuthFail` names. A
   session reports this when its peer did not speak TLS, shared no protocol
-  version, rejected the certificate the session presented, presented a
-  certificate it could not prove it holds, or presented one that would not
-  parse. A session created with verification off reports it for every failure,
-  and so does any session that fails after its handshake.
+  version, rejected the certificate the session presented, or presented one
+  that would not parse. A session created with verification off reports it for
+  every failure, and so does any session that fails after its handshake.
   """
 
 primitive SSLDisposed
@@ -420,17 +421,17 @@ class SSL
       @SSL_free(_ssl)
     end
 
-  fun _peer_auth_failed(): Bool =>
+  fun ref _peer_auth_failed(): Bool =>
     """
     Whether the `SSL_ERROR_SSL` the caller just got from `SSL_do_handshake` was
     this session rejecting its peer's certificate.
 
-    True for a chain that did not verify and for a peer that sent no
-    certificate when one was required. False for a peer that sent a certificate
-    it could not prove it holds, and for one whose certificate would not parse:
-    OpenSSL reports those as SSL-layer errors that name no certificate result,
-    and there is no reason code for them that means the same thing on every
-    backend.
+    True for a chain that did not verify, for a peer that sent no certificate
+    when one was required, and for a peer that presented a certificate but
+    could not prove it holds the matching key. False for a peer whose
+    certificate would not parse: the failure happens before chain verification,
+    so it is not distinguishable from one that had nothing to do with a
+    certificate.
 
     Callers must have checked that `_ssl` is not null, and must arrive with the
     thread's error queue as `SSL_do_handshake` left it. A peer that sent no
@@ -457,6 +458,26 @@ class SSL
         return true
       end
       code = @ERR_get_error()
+    end
+
+    // A peer that presented a certificate it could not prove it holds still
+    // has that certificate stored in the session. The chain verified, or the
+    // check above would have caught it, and no "no certificate" reason was on
+    // the queue. A non-null peer certificate at this point means the handshake
+    // failed after the peer's credentials were received — an authentication
+    // failure, whatever error code the backend reported.
+    let cert =
+      ifdef "openssl_3.0.x" or "openssl_4.0.x" then
+        @SSL_get1_peer_certificate(_ssl)
+      elseif "openssl_1.1.x" or "libressl" then
+        @SSL_get_peer_certificate(_ssl)
+      else
+        compile_error "You must select an SSL version to use."
+      end
+
+    if not cert.is_null() then
+      @X509_free(cert)
+      return true
     end
 
     false
