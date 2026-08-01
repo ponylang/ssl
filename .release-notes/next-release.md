@@ -27,3 +27,7 @@ A peer that presents a certificate it cannot prove it holds — which is what an
 A session created with verification off is the third. That includes a server built without `set_server_verify(true)`, which is the default: it sends no certificate request, so it has no peer identity to reject.
 
 If you wrap a protocol in `SSLConnection`, what changes is whether `auth_failed` runs before `closed`. `SSLConnection` calls `auth_failed` for `SSLAuthFail` and nothing for `SSLError`, and closes the connection on both, so a protocol that used to get `auth_failed` for one of these now gets `closed` on its own. A `closed` with no `connected` or `accepted` before it means the handshake failed. The reverse does not hold: under TLS 1.3 a session can finish its own side of the handshake before its peer's rejection reaches it, so a peer that rejected the connection can still produce `connected` and then `closed`.
+## Fix unproven peer certificates reporting SSLError instead of SSLAuthFail
+
+A peer that presents a certificate it cannot prove it holds — an impersonator with a copy of the certificate but not the matching private key — now reports `SSLAuthFail`. Previously it reported `SSLError`, so `SSLConnection` closed the connection without calling `auth_failed` on the wrapped notify.
+
