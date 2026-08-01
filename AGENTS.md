@@ -61,6 +61,8 @@ The error queue belongs to the thread, not to the session. `SSL_get_error` repor
 
 Every `SSL_*` I/O call gets `@ERR_clear_error()` immediately before it, whether or not its result reaches `SSL_get_error`. Some of them clear the queue themselves — `SSL_do_handshake` does — but that is undocumented and varies by backend, so don't work it out one call site at a time.
 
+Reading an entry off that queue goes wrong two ways. Comparing a whole word against a constant looks exact and is not: OpenSSL 1.1.x and LibreSSL pack a function code into the same word, and it is neither zero nor fixed — LibreSSL gives library 20 with reason 199 as `0x14FFF0C7` after negotiating TLS 1.3 and `0x140360C7` after TLS 1.2. And the entry you want is not always the first one, because a failure inside libcrypto puts its own entry on the queue before libssl puts one there. Take the library and the reason apart, and look at every entry rather than the head.
+
 ## Dispose and `_final`
 
 `dispose()` frees the OpenSSL handle and nulls the pointer field, so any later call hands OpenSSL a null. Most of the C functions dereference it without checking, and the ones that don't vary by backend — `SSL_CTX_ctrl` returns 0 for a null context on OpenSSL but dereferences it on LibreSSL. Check `is_null()` before calling into OpenSSL; don't count on a backend being forgiving.
