@@ -297,6 +297,9 @@ class SSL
         return None
       | _SSLErrorCode.want_read() =>
         return None
+      else
+        _Unreachable()
+        return None
       end
     end
 
@@ -365,6 +368,10 @@ class SSL
           _state = if _peer_auth_failed() then SSLAuthFail else SSLError end
         | _SSLErrorCode.zero_return() =>
           _state = SSLError
+        | _SSLErrorCode.want_read() =>
+          None
+        else
+          _Unreachable()
         end
       end
     end
