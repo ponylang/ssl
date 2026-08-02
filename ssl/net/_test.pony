@@ -21,6 +21,7 @@ actor \nodoc\ Main is TestList
       _TestALPNProtocolListOffsetOfRoundtrip))
     test(_TestALPNStandardProtocolResolver)
     test(_TestSSLHandshakeInMemory)
+    test(_TestSSLCreateClientNoAvailableProtocol)
     test(_TestSSLReceiveNonTLSBytes)
     test(_TestSSLReceiveUntrustedChain)
     test(_TestSSLReceivePeerRejectedOurCert)
@@ -1447,6 +1448,44 @@ class \nodoc\ iso _TestSSLHandshakeInMemory is UnitTest
 
     client.dispose()
     server.dispose()
+
+class \nodoc\ iso _TestSSLCreateClientNoAvailableProtocol is UnitTest
+  """
+  A client session whose context has no available protocol version reports
+  `SSLError` immediately after construction.
+
+  The context allows only TLS 1.2 and then disables it via options, leaving no
+  version for the handshake to use. `SSL_do_handshake` fails during `_create`,
+  and the session classifies that failure before the constructor returns.
+  """
+  fun name(): String => "net/ssl/SSL._create/no_available_protocol"
+
+  fun apply(h: TestHelper) =>
+    let ctx =
+      try
+        recover val
+          SSLContext
+            .> set_max_proto_version(TLS1u2Version())?
+            .> allow_tls_v1_2(false)
+        end
+      else
+        h.fail("ssl context setup failed")
+        return
+      end
+
+    let client =
+      try
+        ctx.client()?
+      else
+        h.fail("client() raised on a misconfigured context")
+        return
+      end
+
+    h.assert_true(
+      client.state() is SSLError,
+      "a client with no available protocol should report SSLError")
+
+    client.dispose()
 
 class \nodoc\ iso _TestSSLReceiveNonTLSBytes is UnitTest
   """
