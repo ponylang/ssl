@@ -53,3 +53,7 @@ Passing more than two gibibytes through an SSL session could silently lose data.
 
 A client session created from a context with no usable protocol version or cipher suite stayed in `SSLHandshake` after construction instead of reporting `SSLError`. The session appeared to be negotiating when it could never succeed.
 
+## Fix SSLConnection calling auth_failed twice for one failure
+
+`SSLConnection` called `auth_failed` on the wrapped notify twice for a single authentication failure. The second call happened during `closed`. A notify that counted calls or performed side effects on each `auth_failed` received two calls.
+
