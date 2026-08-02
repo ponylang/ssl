@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org/) and [Keep a CHANGELOG](http://keepachangelog.com/).
 
-## [unreleased] - unreleased
+## [3.0.1] - 2026-08-02
 
 ### Fixed
 
@@ -17,9 +17,6 @@ All notable changes to this project will be documented in this file. This projec
 - Fix client sessions not reporting immediate handshake failures ([PR #140](https://github.com/ponylang/ssl/pull/140))
 - Fix SSLConnection calling auth_failed twice for one failure ([PR #141](https://github.com/ponylang/ssl/pull/141))
 - Reject inverted protocol version range in SSLContext ([PR #142](https://github.com/ponylang/ssl/pull/142))
-
-### Added
-
 
 ### Changed
 
