@@ -12,6 +12,7 @@ All notable changes to this project will be documented in this file. This projec
 - Fix unproven peer certificates reporting SSLError instead of SSLAuthFail ([PR #133](https://github.com/ponylang/ssl/pull/133))
 - Fix receive reporting inconsistent state when a callback contaminates the error queue ([PR #134](https://github.com/ponylang/ssl/pull/134))
 - Fix read and alpn_selected returning data from authentication-failed sessions ([PR #136](https://github.com/ponylang/ssl/pull/136))
+- Fix ssl/net silently losing data past two gibibytes ([PR #138](https://github.com/ponylang/ssl/pull/138))
 
 ### Added
 
