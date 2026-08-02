@@ -12,12 +12,8 @@ class SSLConnection is TCPConnectionNotify
   either failure. `SSLAuthFail` and `SSLError` each list the failures they
   cover.
 
-  A peer that sends `close_notify` moves the session to `SSLPeerClosed` and
-  the wrapper closes the connection — `closed` reaches the wrapped protocol,
-  `auth_failed` does not. This wrapper does not send `close_notify` on close
-  in either direction: application-initiated close fires `closed` after the
-  socket is gone, and peer-initiated close does not reciprocate. A protocol
-  that needs the alert on the wire has to use `SSL` directly.
+  This wrapper does not send `close_notify` on close. A protocol that
+  needs the alert on the wire has to use `SSL` directly.
   """
   let _notify: TCPConnectionNotify
   let _ssl: SSL

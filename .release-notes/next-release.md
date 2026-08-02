@@ -1,6 +1,6 @@
 ## Add SSL.shutdown
 
-Calling `SSL.shutdown` queues a TLS `close_notify` alert into the session's output BIO. The alert bytes come out through `send`, the same way handshake and application data do.
+`SSL.shutdown` sends a TLS `close_notify` to the peer. Call it before closing the transport, so a peer reading TCP EOF sees an orderly end of stream instead of a truncation. Without it, an OpenSSL peer treats the missing alert as an attack and reports the stream as truncated.
 
 ```pony
 session.shutdown()
@@ -9,25 +9,15 @@ while session.can_send() do
 end
 ```
 
-Without an alert on the wire before the transport closes, an OpenSSL peer that reads TCP EOF without an alert reports `SSL_R_UNEXPECTED_EOF_WHILE_READING`, its signal for a truncated stream. RFC 8446 §6.1 requires each party to send `close_notify` before closing its write side.
+`shutdown` runs from `SSLReady` (initiating) and from `SSLPeerClosed` (reciprocating the peer's alert). Repeating the call is a no-op. After it returns, `write` on the session raises: this package does not offer TLS half-close.
 
-`shutdown` runs from `SSLReady` (initiating) and from `SSLPeerClosed` (reciprocating the peer's alert). If `SSL_shutdown` fails, the session moves to `SSLError` — the caller draining the output BIO sees no bytes and can react instead of closing the transport with silent truncation.
-
-After `shutdown` returns, `write` on the session raises. This package does not offer TLS half-close: application writes after our own or the peer's `close_notify` are refused.
-
-`SSLConnection` does not send `close_notify` on close in either direction — its `closed` hook fires after the transport is gone. A protocol that needs the alert on the wire has to use `SSL` directly.
+`SSLConnection` does not send `close_notify` on close, in either direction — its `closed` hook fires after the transport is gone. A protocol that needs the alert on the wire has to use `SSL` directly.
 
 ## Split SSLPeerClosed from SSLError
 
-A session whose peer sent `close_notify` now has state `SSLPeerClosed`. That case used to fold into `SSLError` alongside decryption failures and dropped connections, so a clean end of stream and a failure were indistinguishable.
+A session whose peer sent `close_notify` now reports `SSLPeerClosed`, not `SSLError`. Before, a clean end of stream and a failure looked the same to a caller matching on state.
 
-`SSL.read` on a session in `SSLPeerClosed` still surfaces any bytes decrypted before the peer's `close_notify` — the same way `SSLError` does. The next read past those bytes returns `None`.
-
-`SSL.receive` on a session in `SSLPeerClosed` drops the bytes. `SSL.write` raises, as on any non-`SSLReady` state.
-
-`SSLPeerClosed` is added to the public `SSLState` union. A caller that matched on `SSLError` after `SSL.read` to detect any end of a session needs an added arm; a `match \exhaustive\` on `SSLState` needs an arm for the new variant.
-
-Before:
+A caller that matched on `SSLError` to detect any end of a session needs an added arm; a `match \exhaustive\` on `SSLState` needs one too. Before:
 
 ```pony
 match session.state()

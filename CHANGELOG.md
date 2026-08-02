@@ -9,15 +9,11 @@ All notable changes to this project will be documented in this file. This projec
 
 ### Added
 
-- Add `SSL.shutdown` for emitting a TLS `close_notify` alert
+- Add `SSL.shutdown` for sending a TLS `close_notify` alert ([PR #147](https://github.com/ponylang/ssl/pull/147))
 
 ### Changed
 
-- Split `SSLPeerClosed` from `SSLError`. A session whose peer sent
-  `close_notify` now reports `SSLPeerClosed`. Callers that matched on
-  `SSLError` after `SSL.read` to detect any end of a session, and any
-  `match \exhaustive\` on `SSLState`, need an added arm for
-  `SSLPeerClosed`.
+- Split `SSLPeerClosed` from `SSLError` on peer `close_notify` ([PR #147](https://github.com/ponylang/ssl/pull/147))
 
 
 ## [3.0.1] - 2026-08-02

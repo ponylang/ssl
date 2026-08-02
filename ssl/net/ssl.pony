@@ -126,35 +126,23 @@ primitive SSLAuthFail
 primitive SSLReady
   """
   The handshake is complete. Application data can be sent and received.
-  A session that has called `shutdown` stays in `SSLReady` but errors on
-  `write`.
   """
 
 primitive SSLError
   """
-  The session failed for a reason other than the ones `SSLAuthFail` and
-  `SSLPeerClosed` name. A session reports this when its peer did not speak
-  TLS, shared no protocol version, rejected the certificate the session
-  presented, or presented one that would not parse. A session created with
-  verification off reports it for every failure, and so does any session
-  that fails after its handshake.
+  The session failed for a reason other than the one `SSLAuthFail` names. A
+  session reports this when its peer did not speak TLS, shared no protocol
+  version, rejected the certificate the session presented, or presented one
+  that would not parse. A session created with verification off reports it for
+  every failure, and so does any session that fails after its handshake.
   """
 
 primitive SSLPeerClosed
   """
   The peer sent `close_notify`. No more application data will arrive on
-  this session, and the session has not failed. `read` still surfaces
-  bytes decrypted before the alert, and returns `None` past those.
-  `receive` does nothing. `write` errors. `can_send`, `send`, and
-  `shutdown` still work, so a caller can reciprocate with its own alert.
-
-  `write` erroring on this state means TLS half-close (writing more
-  application data after the peer's `close_notify`) is not supported.
-
-  A session ends up here only from `read`; `receive` and the handshake
-  path never move a session to this state. A `shutdown` from here that
-  fails moves the session to `SSLError` — the reciprocal alert did not
-  go out.
+  this session, and the session has not failed. `read` still surfaces any
+  bytes decrypted before the alert. `write` errors — this package does
+  not support TLS half-close. `shutdown` reciprocates.
   """
 
 primitive SSLDisposed
@@ -175,10 +163,8 @@ type SSLState is
   """
   The state of an SSL session. A session starts in `SSLHandshake` and reaches
   `SSLReady`, `SSLAuthFail`, or `SSLError` from there. A ready session can
-  reach `SSLPeerClosed` (peer sent `close_notify`) or fail into `SSLError`
-  later. A session in `SSLPeerClosed` can fail into `SSLError` on a
-  reciprocation `shutdown`. Disposing a session puts it in `SSLDisposed`
-  from any state, and it stays there.
+  reach `SSLPeerClosed` or fail into `SSLError` later. Disposing a session
+  puts it in `SSLDisposed` from any state, and it stays there.
   """
 
 class SSL
@@ -289,11 +275,6 @@ class SSL
     non-zero, this returns `None` until at least `expect` bytes are available,
     then returns everything it holds, which is at least `expect`. Returns
     `None` when the session has been disposed or is in `SSLAuthFail`.
-
-    A session in `SSLPeerClosed` still surfaces any bytes decrypted before
-    the peer's `close_notify` arrived — the same way `SSLError` does. Past
-    those bytes, `read` returns `None` and leaves the session in
-    `SSLPeerClosed`.
     """
     if _ssl.is_null() then return None end
     if _state is SSLAuthFail then return None end
@@ -375,10 +356,9 @@ class SSL
   fun ref write(data: ByteSeq) ? =>
     """
     When application data is sent, add it to the SSL session. Does nothing if
-    the session has been disposed. Raises when the session is not `SSLReady`
-    (still handshaking, ended in `SSLAuthFail`, `SSLError`, or `SSLPeerClosed`),
-    when `shutdown` has been called, or when `SSL_write` does not encrypt the
-    data.
+    the session has been disposed. Raises when the session is not `SSLReady`,
+    when `shutdown` has been called, or when `SSL_write` does not encrypt
+    the data.
     """
     if _ssl.is_null() then return end
     if (_state isnt SSLReady) or _shutdown_sent then error end
