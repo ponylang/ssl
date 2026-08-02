@@ -227,10 +227,11 @@ class SSL
 
   fun box alpn_selected(): (ALPNProtocolName | None) =>
     """
-    Get the protocol identifier negotiated via ALPN. Returns None if the
-    session has been disposed.
+    Get the protocol identifier negotiated via ALPN. Returns `None` when the
+    session has been disposed or is in `SSLAuthFail`.
     """
     if _ssl.is_null() then return None end
+    if _state is SSLAuthFail then return None end
 
     var ptr: Pointer[U8] iso = recover Pointer[U8] end
     var len = U32(0)
@@ -256,11 +257,12 @@ class SSL
   fun ref read(expect: USize = 0): (Array[U8] iso^ | None) =>
     """
     Returns unencrypted bytes to be passed to the application. If `expect` is
-    non-zero, this returns None until at least `expect` bytes are available,
-    then returns everything it holds, which is at least `expect`. A disposed
-    session returns None.
+    non-zero, this returns `None` until at least `expect` bytes are available,
+    then returns everything it holds, which is at least `expect`. Returns
+    `None` when the session has been disposed or is in `SSLAuthFail`.
     """
     if _ssl.is_null() then return None end
+    if _state is SSLAuthFail then return None end
 
     let offset = _read_buf.size()
 
@@ -349,10 +351,11 @@ class SSL
 
   fun ref receive(data: ByteSeq) =>
     """
-    When data is received, add it to the SSL session. Does nothing if the
-    session has been disposed.
+    When data is received, add it to the SSL session. Does nothing when the
+    session has been disposed or is in `SSLAuthFail` or `SSLError`.
     """
     if _ssl.is_null() then return end
+    if (_state is SSLAuthFail) or (_state is SSLError) then return end
 
     @BIO_write(_input, data.cpointer(), data.size().i32())
 

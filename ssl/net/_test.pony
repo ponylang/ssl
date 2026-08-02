@@ -38,6 +38,10 @@ actor \nodoc\ Main is TestList
     test(_TestSSLReadWithBufferedBytes)
     test(_TestSSLReadNoExpectAfterError)
     test(_TestSSLReadPendingExceedsExpect)
+    test(_TestSSLReadOnAuthFail)
+    test(_TestSSLALPNSelectedOnAuthFail)
+    test(_TestSSLReceiveOnAuthFail)
+    test(_TestSSLReceiveOnError)
     test(_TestSSLDisposeBeforeHandshake)
     test(_TestSSLDisposeTwice)
     test(_TestSSLReadAfterDispose)
@@ -2254,6 +2258,195 @@ class \nodoc\ iso _TestSSLReadPendingExceedsExpect is UnitTest
 
     client.dispose()
     server.dispose()
+
+class \nodoc\ iso _TestSSLReadOnAuthFail is UnitTest
+  """
+  `read` on a session in `SSLAuthFail` returns `None` and does not overwrite
+  the state with `SSLError`.
+
+  Without the guard, `read` calls `SSL_read`, which returns an error that
+  sets `_state = SSLError`, losing the distinction between an authentication
+  failure and any other SSL-layer error.
+  """
+  fun name(): String => "net/ssl/SSL.read/on_auth_fail"
+
+  fun apply(h: TestHelper) =>
+    (let client, let server) =
+      try
+        let client_ctx =
+          _TestSSLContext(h where authority = true, client_verify = true)?
+        let server_ctx = _TestSSLContext(h where cert = true)?
+        _TestSSLSessionPair.attempt(
+          h, client_ctx, server_ctx where hostname = "nomatch.example.com")?
+      else
+        h.fail("could not create an SSL session pair")
+        return
+      end
+
+    h.assert_true(
+      client.state() is SSLAuthFail,
+      "the client should be in SSLAuthFail after a hostname mismatch")
+
+    h.assert_true(
+      client.read() is None,
+      "read() on an SSLAuthFail session should return None")
+
+    h.assert_true(
+      client.read(10) is None,
+      "read(10) on an SSLAuthFail session should return None")
+
+    h.assert_true(
+      client.state() is SSLAuthFail,
+      "read() should not overwrite SSLAuthFail")
+
+    client.dispose()
+    server.dispose()
+
+class \nodoc\ iso _TestSSLALPNSelectedOnAuthFail is UnitTest
+  """
+  `alpn_selected` on a session in `SSLAuthFail` returns `None`, even though
+  the session negotiated a protocol during the handshake.
+
+  The negotiated protocol is peer-supplied data. Returning it from a session
+  whose peer failed authentication leaks the peer's selection.
+  """
+  fun name(): String => "net/ssl/SSL.alpn_selected/on_auth_fail"
+
+  fun apply(h: TestHelper) =>
+    let auth = FileAuth(h.env.root)
+    let client_ctx =
+      try
+        recover val
+          SSLContext
+            .> set_authority(FilePath(auth, "assets/cert.pem"))?
+            .> alpn_set_client_protocols(["h2"])
+        end
+      else
+        h.fail("client ssl context setup failed")
+        return
+      end
+    let server_ctx =
+      try
+        recover val
+          SSLContext
+            .> set_cert(
+                FilePath(auth, "assets/cert.pem"),
+                FilePath(auth, "assets/key.pem"))?
+            .> alpn_set_resolver(ALPNStandardProtocolResolver(["h2"]))
+        end
+      else
+        h.fail("server ssl context setup failed")
+        return
+      end
+
+    (let client, let server) =
+      try
+        _TestSSLSessionPair.attempt(
+          h, client_ctx, server_ctx where hostname = "nomatch.example.com")?
+      else
+        h.fail("could not create an SSL session pair")
+        return
+      end
+
+    h.assert_true(
+      client.state() is SSLAuthFail,
+      "the client should be in SSLAuthFail after a hostname mismatch")
+
+    h.assert_true(
+      try (server.alpn_selected() as String) == "h2" else false end,
+      "the server should have negotiated h2")
+
+    h.assert_true(
+      client.alpn_selected() is None,
+      "alpn_selected() on an SSLAuthFail session should return None")
+
+    client.dispose()
+    server.dispose()
+
+class \nodoc\ iso _TestSSLReceiveOnAuthFail is UnitTest
+  """
+  `receive` on a session in `SSLAuthFail` does nothing.
+
+  The session rejected its peer's identity. Accepting more ciphertext from
+  that peer would let `read` decrypt data the application should never see.
+  """
+  fun name(): String => "net/ssl/SSL.receive/on_auth_fail"
+
+  fun apply(h: TestHelper) =>
+    (let client, let server) =
+      try
+        let client_ctx =
+          _TestSSLContext(h where authority = true, client_verify = true)?
+        let server_ctx = _TestSSLContext(h where cert = true)?
+        _TestSSLSessionPair.attempt(
+          h, client_ctx, server_ctx where hostname = "nomatch.example.com")?
+      else
+        h.fail("could not create an SSL session pair")
+        return
+      end
+
+    h.assert_true(
+      client.state() is SSLAuthFail,
+      "the client should be in SSLAuthFail after a hostname mismatch")
+    h.assert_true(
+      server.state() is SSLReady,
+      "the server should be in SSLReady")
+
+    try
+      server.write("should not be received")?
+      while server.can_send() do
+        client.receive(server.send()?)
+      end
+    else
+      h.fail("server could not produce ciphertext")
+      client.dispose()
+      server.dispose()
+      return
+    end
+
+    h.assert_true(
+      client.read() is None,
+      "data received after SSLAuthFail should not be readable")
+
+    h.assert_true(
+      client.state() is SSLAuthFail,
+      "the state should still be SSLAuthFail")
+
+    client.dispose()
+    server.dispose()
+
+class \nodoc\ iso _TestSSLReceiveOnError is UnitTest
+  """
+  `receive` on a session in `SSLError` does nothing.
+
+  Once a session has failed, accepting more ciphertext from its peer is
+  pointless: the session cannot decrypt it and has no use for it.
+  """
+  fun name(): String => "net/ssl/SSL.receive/on_error"
+
+  fun apply(h: TestHelper) =>
+    let client =
+      try
+        _TestSSLContext(h where authority = true, client_verify = true)?
+          .client()?
+      else
+        h.fail("could not create a client session")
+        return
+      end
+
+    client.receive("NOT AN SSL HANDSHAKE\r\n")
+
+    h.assert_true(
+      client.state() is SSLError,
+      "non-TLS bytes should put the session in SSLError")
+
+    client.receive("more data after error")
+
+    h.assert_true(
+      client.state() is SSLError,
+      "the state should still be SSLError after a second receive")
+
+    client.dispose()
 
 class \nodoc\ iso _TestSSLDisposeBeforeHandshake is UnitTest
   """
