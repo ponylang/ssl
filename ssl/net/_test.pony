@@ -45,6 +45,14 @@ actor \nodoc\ Main is TestList
     test(_TestSSLReceiveOnError)
     test(_TestSSLDisposeBeforeHandshake)
     test(_TestSSLDisposeTwice)
+    test(_TestSSLShutdownProducesAlert)
+    test(_TestSSLShutdownReciprocates)
+    test(_TestSSLShutdownAfterDispose)
+    test(_TestSSLShutdownBeforeHandshake)
+    test(_TestSSLWriteAfterShutdownErrors)
+    test(_TestSSLWriteAfterPeerClosedErrors)
+    test(_TestSSLReceiveOnPeerClosed)
+    test(_TestSSLReadAfterPeerClosedReturnsBufferedBytes)
     test(_TestSSLReadAfterDispose)
     test(_TestSSLReadAfterDisposeWithBufferedFrame)
     test(_TestSSLReceiveAfterDispose)
@@ -2666,6 +2674,356 @@ class \nodoc\ iso _TestSSLDisposeTwice is UnitTest
       client.can_send(),
       "can_send() on a disposed session should return false")
 
+    server.dispose()
+
+class \nodoc\ iso _TestSSLShutdownProducesAlert is UnitTest
+  """
+  `shutdown` on a ready session queues a `close_notify` alert into the
+  output BIO. Feeding it to the peer moves the peer's session to
+  `SSLPeerClosed`. An OpenSSL 3.x peer that reads TCP EOF without an alert
+  reports `SSL_R_UNEXPECTED_EOF_WHILE_READING`.
+  """
+  fun name(): String => "net/ssl/SSL.shutdown/produces_alert"
+
+  fun apply(h: TestHelper) =>
+    (let client, let server) =
+      try
+        _TestSSLSessionPair(h)?
+      else
+        h.fail("could not establish an SSL session pair")
+        return
+      end
+
+    client.shutdown()
+
+    h.assert_true(
+      client.can_send(),
+      "shutdown() should leave the client with alert bytes to send")
+
+    try
+      _TestSSLTransfer(client, server)?
+    else
+      h.fail("could not transfer client's alert to the server")
+      client.dispose()
+      server.dispose()
+      return
+    end
+
+    h.assert_true(
+      server.read() is None,
+      "server.read() should return None after the peer sent close_notify")
+    h.assert_true(
+      server.state() is SSLPeerClosed,
+      "peer close_notify should put the server in SSLPeerClosed")
+
+    client.dispose()
+    server.dispose()
+
+class \nodoc\ iso _TestSSLShutdownReciprocates is UnitTest
+  """
+  A session that has received the peer's `close_notify` and moved to
+  `SSLPeerClosed` can still call `shutdown` to reciprocate — RFC 8446 §6.1
+  requires each party to send its own alert before closing its write side.
+  The reciprocation queues bytes on the output BIO the same way an
+  initiating `shutdown` does.
+  """
+  fun name(): String => "net/ssl/SSL.shutdown/reciprocates_peer_close"
+
+  fun apply(h: TestHelper) =>
+    (let client, let server) =
+      try
+        _TestSSLSessionPair(h)?
+      else
+        h.fail("could not establish an SSL session pair")
+        return
+      end
+
+    client.shutdown()
+
+    try
+      _TestSSLTransfer(client, server)?
+    else
+      h.fail("could not transfer client's alert to the server")
+      client.dispose()
+      server.dispose()
+      return
+    end
+
+    h.assert_true(
+      server.read() is None,
+      "server.read() should return None after receiving close_notify")
+    h.assert_true(
+      server.state() is SSLPeerClosed,
+      "server should be in SSLPeerClosed after receiving close_notify")
+
+    server.shutdown()
+
+    h.assert_true(
+      server.can_send(),
+      "shutdown() on SSLPeerClosed should queue the reciprocation alert")
+
+    client.dispose()
+    server.dispose()
+
+class \nodoc\ iso _TestSSLShutdownAfterDispose is UnitTest
+  """
+  `shutdown` on a disposed session does nothing and does not crash.
+  """
+  fun name(): String => "net/ssl/SSL.shutdown/after_dispose"
+
+  fun apply(h: TestHelper) =>
+    (let client, let server) =
+      try
+        _TestSSLSessionPair(h)?
+      else
+        h.fail("could not establish an SSL session pair")
+        return
+      end
+
+    client.dispose()
+    client.shutdown()
+
+    h.assert_true(
+      client.state() is SSLDisposed,
+      "shutdown() on a disposed session should leave state SSLDisposed")
+
+    server.dispose()
+
+class \nodoc\ iso _TestSSLShutdownBeforeHandshake is UnitTest
+  """
+  `shutdown` on a session that has not reached `SSLReady` does nothing.
+  State does not change, and a later `shutdown` on the same session after
+  it handshakes still queues the alert — the pre-handshake call must not
+  have set the internal shutdown flag behind the state guard.
+  """
+  fun name(): String => "net/ssl/SSL.shutdown/before_handshake"
+
+  fun apply(h: TestHelper) =>
+    (let client, let server) =
+      try
+        _TestSSLSessionPair.fresh(h)?
+      else
+        h.fail("could not create an SSL session pair")
+        return
+      end
+
+    h.assert_true(
+      client.state() is SSLHandshake,
+      "a fresh client session should be in SSLHandshake")
+
+    client.shutdown()
+
+    h.assert_true(
+      client.state() is SSLHandshake,
+      "shutdown() before handshake should not change state")
+
+    // Handshake normally. The pre-handshake shutdown must not have set
+    // `_shutdown_sent` behind the state guard, or the post-handshake
+    // shutdown below would no-op.
+    try
+      _TestSSLSessionPair._handshake(h, client, server)?
+    else
+      h.fail("handshake failed after a pre-handshake shutdown call")
+      client.dispose()
+      server.dispose()
+      return
+    end
+
+    client.shutdown()
+    h.assert_true(
+      client.can_send(),
+      "shutdown() after a valid handshake should queue alert bytes even "
+        + "after a prior no-op shutdown() from SSLHandshake")
+
+    client.dispose()
+    server.dispose()
+
+class \nodoc\ iso _TestSSLWriteAfterShutdownErrors is UnitTest
+  """
+  `write` on a session that has called `shutdown` raises, and the session
+  state stays `SSLReady`. Sending after telling the peer we are done
+  writing is a protocol violation. A `write` that reached `SSL_write` would
+  fail and set state to `SSLError`; asserting `SSLReady` proves the raise
+  happened before `SSL_write` ran.
+  """
+  fun name(): String => "net/ssl/SSL.write/after_shutdown"
+
+  fun apply(h: TestHelper) =>
+    (let client, let server) =
+      try
+        _TestSSLSessionPair(h)?
+      else
+        h.fail("could not establish an SSL session pair")
+        return
+      end
+
+    client.shutdown()
+
+    try
+      client.write("bytes after shutdown")?
+      h.fail("write() after shutdown() should raise")
+    end
+
+    h.assert_true(
+      client.state() is SSLReady,
+      "write() after shutdown() must raise before reaching SSL_write, "
+        + "leaving state SSLReady")
+
+    client.dispose()
+    server.dispose()
+
+class \nodoc\ iso _TestSSLReadAfterPeerClosedReturnsBufferedBytes is UnitTest
+  """
+  Bytes decrypted before the peer's `close_notify` are still surfaced by a
+  subsequent `read`. The `SSLPeerClosed` transition happens inside `read`
+  when `SSL_read` hits `ZERO_RETURN`; leftover plaintext in the session's
+  read buffer must not be lost.
+
+  This is the same invariant `_TestSSLReadAfterErrorReturnsOnlyDecryptedBytes`
+  covers for `SSLError`, restated for the new state.
+  """
+  fun name(): String => "net/ssl/SSL.read/after_peer_closed_returns_buffered"
+
+  fun apply(h: TestHelper) =>
+    (let client, let server) =
+      try
+        _TestSSLSessionPair(h)?
+      else
+        h.fail("could not establish an SSL session pair")
+        return
+      end
+
+    // 50 bytes of application data, then the client's close_notify.
+    try
+      client.write(recover val Array[U8].init('A', 50) end)?
+      _TestSSLTransfer(client, server)?
+      client.shutdown()
+      _TestSSLTransfer(client, server)?
+    else
+      h.fail("could not send data plus close_notify")
+      client.dispose()
+      server.dispose()
+      return
+    end
+
+    // A read(100) buffers the 50 and discovers close_notify on the next
+    // SSL_read, moving state to SSLPeerClosed and returning None.
+    match \exhaustive\ server.read(100)
+    | let data: Array[U8] iso =>
+      h.fail(
+        "50 bytes satisfied a read of 100 and produced "
+          + (consume data).size().string() + " bytes")
+      client.dispose()
+      server.dispose()
+      return
+    | None => None
+    end
+    h.assert_true(
+      server.state() is SSLPeerClosed,
+      "server should be in SSLPeerClosed after reading close_notify")
+
+    // A read(50) after the peer close must surface the 50 buffered bytes.
+    match \exhaustive\ server.read(50)
+    | let data: Array[U8] iso =>
+      h.assert_array_eq[U8](
+        recover val Array[U8].init('A', 50) end,
+        consume data,
+        "a read of 50 returned something other than the 50 decrypted bytes")
+    | None =>
+      h.fail("a read of 50 returned none of the 50 buffered bytes")
+    end
+
+    client.dispose()
+    server.dispose()
+
+class \nodoc\ iso _TestSSLWriteAfterPeerClosedErrors is UnitTest
+  """
+  `write` on a session in `SSLPeerClosed` raises and leaves state at
+  `SSLPeerClosed`. Reaching `SSL_write` would set state to `SSLError`, so
+  the unchanged state confirms the raise came from the state guard.
+  """
+  fun name(): String => "net/ssl/SSL.write/after_peer_closed"
+
+  fun apply(h: TestHelper) =>
+    (let client, let server) =
+      try
+        _TestSSLSessionPair(h)?
+      else
+        h.fail("could not establish an SSL session pair")
+        return
+      end
+
+    client.shutdown()
+    try
+      _TestSSLTransfer(client, server)?
+    else
+      h.fail("could not transfer client's alert to the server")
+      client.dispose()
+      server.dispose()
+      return
+    end
+    h.assert_true(
+      server.read() is None,
+      "server.read() should return None after receiving close_notify")
+    h.assert_true(
+      server.state() is SSLPeerClosed,
+      "server should be in SSLPeerClosed")
+
+    try
+      server.write("half-close write")?
+      h.fail("write() on SSLPeerClosed should raise")
+    end
+
+    h.assert_true(
+      server.state() is SSLPeerClosed,
+      "write() raise on SSLPeerClosed should leave state SSLPeerClosed")
+
+    client.dispose()
+    server.dispose()
+
+class \nodoc\ iso _TestSSLReceiveOnPeerClosed is UnitTest
+  """
+  `receive` on a session in `SSLPeerClosed` drops the bytes. Ciphertext
+  arriving after the peer's `close_notify` is not application data the
+  session can decrypt or use.
+  """
+  fun name(): String => "net/ssl/SSL.receive/on_peer_closed"
+
+  fun apply(h: TestHelper) =>
+    (let client, let server) =
+      try
+        _TestSSLSessionPair(h)?
+      else
+        h.fail("could not establish an SSL session pair")
+        return
+      end
+
+    client.shutdown()
+    try
+      _TestSSLTransfer(client, server)?
+    else
+      h.fail("could not transfer client's alert to the server")
+      client.dispose()
+      server.dispose()
+      return
+    end
+    h.assert_true(
+      server.read() is None,
+      "server.read() should return None after receiving close_notify")
+    h.assert_true(
+      server.state() is SSLPeerClosed,
+      "server should be in SSLPeerClosed")
+
+    server.receive("bytes past close_notify")
+
+    h.assert_true(
+      server.state() is SSLPeerClosed,
+      "receive() on SSLPeerClosed should not change state")
+    h.assert_true(
+      server.read() is None,
+      "read() on SSLPeerClosed after garbage receive should still return None")
+
+    client.dispose()
     server.dispose()
 
 class \nodoc\ iso _TestSSLReadAfterDispose is UnitTest

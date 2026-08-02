@@ -9,8 +9,15 @@ All notable changes to this project will be documented in this file. This projec
 
 ### Added
 
+- Add `SSL.shutdown` for emitting a TLS `close_notify` alert
 
 ### Changed
+
+- Split `SSLPeerClosed` from `SSLError`. A session whose peer sent
+  `close_notify` now reports `SSLPeerClosed`. Callers that matched on
+  `SSLError` after `SSL.read` to detect any end of a session, and any
+  `match \exhaustive\` on `SSLState`, need an added arm for
+  `SSLPeerClosed`.
 
 
 ## [3.0.1] - 2026-08-02
