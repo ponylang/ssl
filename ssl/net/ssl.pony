@@ -340,7 +340,7 @@ class SSL
     """
     When application data is sent, add it to the SSL session. Does nothing if
     the session has been disposed. Raises an error if the handshake is not
-    complete.
+    complete or if `SSL_write` does not encrypt the data.
     """
     if _ssl.is_null() then return end
     if _state isnt SSLReady then error end
@@ -352,7 +352,20 @@ class SSL
       while offset < total do
         let chunk = (total - offset).min(max_chunk)
         @ERR_clear_error()
-        @SSL_write(_ssl, data.cpointer(offset), chunk.i32())
+        let r = @SSL_write(_ssl, data.cpointer(offset), chunk.i32())
+        if r <= 0 then
+          match @SSL_get_error(_ssl, r)
+          | _SSLErrorCode.ssl()
+          | _SSLErrorCode.syscall()
+          | _SSLErrorCode.zero_return() =>
+            _state = SSLError
+          | _SSLErrorCode.want_read() =>
+            None
+          else
+            _Unreachable()
+          end
+          error
+        end
         offset = offset + chunk
       end
     end
