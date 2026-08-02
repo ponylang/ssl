@@ -45,3 +45,7 @@ All three methods now return immediately when the session has already failed: `r
 
 Passing more than two gibibytes through an SSL session could silently lose data. `write` passed only a small fraction of a large buffer to the session. `receive` passed only part of a large ciphertext block to the session. `send` did not return ciphertext from a session whose output had grown past two gibibytes. `read` with a large `expect` allocated more memory than it filled. All four methods now work correctly with data of any size.
 
+## Fix SSL.write silently losing data when encryption fails
+
+`SSL.write` could report success when it encrypted nothing. A TLS 1.2 peer that started a renegotiation triggered this: the session was still `SSLReady`, but the write produced no ciphertext and the payload was gone. `write` now raises an error when it cannot encrypt the data. A fatal encryption failure also sets the session to `SSLError`.
+
