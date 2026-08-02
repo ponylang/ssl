@@ -57,3 +57,7 @@ A client session created from a context with no usable protocol version or ciphe
 
 `SSLConnection` called `auth_failed` on the wrapped notify twice for a single authentication failure. The second call happened during `closed`. A notify that counted calls or performed side effects on each `auth_failed` received two calls.
 
+## Fix SSLContext accepting an inverted protocol version range
+
+`set_min_proto_version(TLS1u3Version())` followed by `set_max_proto_version(TLS1u2Version())` passed without raising. Every session from that context then failed its handshake with "no protocols available." Both setters now raise when the new value would leave the minimum above the maximum.
+
