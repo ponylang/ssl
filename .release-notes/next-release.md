@@ -35,3 +35,9 @@ A peer that presents a certificate it cannot prove it holds — an impersonator 
 
 A callback running during the TLS handshake — such as an ALPN resolver — could change whether `auth_failed` fired on the connection notify. The same handshake failure could produce `SSLAuthFail` or `SSLError` depending on what the callback happened to call internally, because one OpenSSL error code bypassed the authentication-failure classification that the other went through. Both error codes now take the same classification path, so the reported state depends on what failed, not on what the callback did.
 
+## Fix read and alpn_selected returning data from authentication-failed sessions
+
+Calling `read` on a session in `SSLAuthFail` overwrote the state with `SSLError`, so code that branched on the state to distinguish authentication failures from other errors lost the distinction after the first `read`. Calling `alpn_selected` on the same session returned the ALPN protocol the rejected peer had negotiated. Calling `receive` accepted ciphertext from a peer whose identity had been rejected.
+
+All three methods now return immediately when the session has already failed: `read` and `alpn_selected` return `None`, and `receive` does nothing.
+
