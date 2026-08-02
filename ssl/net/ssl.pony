@@ -283,6 +283,7 @@ class SSL
       len = if expect > 0 then len.min(pending) else pending end
     end
 
+    len = len.min(I32.max_value().usize())
     _read_buf.undefined(offset + len)
     @ERR_clear_error()
     let r = @SSL_read(_ssl, _read_buf.cpointer(offset), len.i32())
@@ -344,9 +345,16 @@ class SSL
     if _ssl.is_null() then return end
     if _state isnt SSLReady then error end
 
-    if data.size() > 0 then
-      @ERR_clear_error()
-      @SSL_write(_ssl, data.cpointer(), data.size().i32())
+    let total = data.size()
+    if total > 0 then
+      let max_chunk = I32.max_value().usize()
+      var offset: USize = 0
+      while offset < total do
+        let chunk = (total - offset).min(max_chunk)
+        @ERR_clear_error()
+        @SSL_write(_ssl, data.cpointer(offset), chunk.i32())
+        offset = offset + chunk
+      end
     end
 
   fun ref receive(data: ByteSeq) =>
@@ -357,7 +365,16 @@ class SSL
     if _ssl.is_null() then return end
     if (_state is SSLAuthFail) or (_state is SSLError) then return end
 
-    @BIO_write(_input, data.cpointer(), data.size().i32())
+    let total = data.size()
+    if total > 0 then
+      let max_chunk = I32.max_value().usize()
+      var offset: USize = 0
+      while offset < total do
+        let chunk = (total - offset).min(max_chunk)
+        @BIO_write(_input, data.cpointer(offset), chunk.i32())
+        offset = offset + chunk
+      end
+    end
 
     if _state is SSLHandshake then
       @ERR_clear_error()
@@ -395,11 +412,12 @@ class SSL
     """
     if _ssl.is_null() then error end
 
-    let len = @BIO_ctrl_pending(_output)
-    if len == 0 then error end
+    let pending = @BIO_ctrl_pending(_output)
+    if pending == 0 then error end
 
+    let len = pending.min(I32.max_value().usize())
     let buf = recover Array[U8] .> undefined(len) end
-    let r = @BIO_read(_output, buf.cpointer(), buf.size().i32())
+    let r = @BIO_read(_output, buf.cpointer(), len.i32())
     if r <= 0 then error end
     buf.truncate(r.usize())
     buf
