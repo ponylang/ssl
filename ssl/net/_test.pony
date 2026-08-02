@@ -60,6 +60,8 @@ actor \nodoc\ Main is TestList
     test(_TestSSLContextALPNResolverRootedBySession)
     test(_TestSSLContextALPNResolverUnreferenced)
     test(_TestSSLContextALPNSetClientProtocolsAfterDispose)
+    test(_TestSSLContextSetMinProtoVersionInvertedRange)
+    test(_TestSSLContextSetMaxProtoVersionInvertedRange)
     test(_TestSSLContextSetMinProtoVersionAfterDispose)
     test(_TestSSLContextSetMaxProtoVersionAfterDispose)
     test(_TestSSLContextGetMinProtoVersionAfterDispose)
@@ -3405,6 +3407,106 @@ class \nodoc\ iso _TestSSLContextALPNSetClientProtocolsAfterDispose is UnitTest
     h.assert_false(
       ctx.alpn_set_client_protocols(["h2"]),
       "alpn_set_client_protocols() on a disposed context should return false")
+
+class \nodoc\ iso _TestSSLContextSetMinProtoVersionInvertedRange is UnitTest
+  """
+  `set_min_proto_version` raises when the new minimum is above the current
+  maximum, and does not change the minimum.
+
+  An equal range is valid: it pins the context to one protocol version.
+  `SSLAutoVersion` bypasses the check, since a zero boundary means the library
+  picks.
+  """
+  fun name(): String =>
+    "net/ssl/SSLContext.set_min_proto_version/inverted_range"
+
+  fun apply(h: TestHelper) =>
+    let ctx = SSLContext
+
+    try
+      ctx.set_max_proto_version(TLS1u2Version())?
+    else
+      h.fail("set_max_proto_version(TLS1u2Version) should not raise")
+      return
+    end
+
+    try
+      ctx.set_min_proto_version(TLS1u3Version())?
+      h.fail(
+        "set_min_proto_version(TLS1u3Version) should raise when max is "
+          + "TLS 1.2")
+    end
+
+    h.assert_eq[ILong](
+      TLS1u2Version().ilong(),
+      ctx.get_min_proto_version(),
+      "min should still be TLS 1.2 after the rejected call")
+
+    try
+      ctx.set_min_proto_version(SSLAutoVersion())?
+    else
+      h.fail("set_min_proto_version(SSLAutoVersion) should not raise")
+    end
+
+    try
+      ctx.set_min_proto_version(TLS1u2Version())?
+    else
+      h.fail(
+        "set_min_proto_version(TLS1u2Version) should not raise when max is "
+          + "TLS 1.2")
+    end
+
+    ctx.dispose()
+
+class \nodoc\ iso _TestSSLContextSetMaxProtoVersionInvertedRange is UnitTest
+  """
+  `set_max_proto_version` raises when the new maximum is below the current
+  minimum, and does not change the maximum.
+
+  An equal range is valid: it pins the context to one protocol version.
+  `SSLAutoVersion` bypasses the check, since a zero boundary means the library
+  picks.
+  """
+  fun name(): String =>
+    "net/ssl/SSLContext.set_max_proto_version/inverted_range"
+
+  fun apply(h: TestHelper) =>
+    let ctx = SSLContext
+
+    try
+      ctx.set_min_proto_version(TLS1u3Version())?
+    else
+      h.fail("set_min_proto_version(TLS1u3Version) should not raise")
+      return
+    end
+
+    try
+      ctx.set_max_proto_version(TLS1u2Version())?
+      h.fail(
+        "set_max_proto_version(TLS1u2Version) should raise when min is "
+          + "TLS 1.3")
+    end
+
+    h.assert_eq[ILong](
+      SSLAutoVersion().ilong(),
+      ctx.get_max_proto_version(),
+      "max should still be auto after the rejected call")
+
+    try
+      ctx.set_max_proto_version(TLS1u3Version())?
+    else
+      h.fail(
+        "set_max_proto_version(TLS1u3Version) should not raise when min is "
+          + "TLS 1.3")
+    end
+
+    try
+      ctx.set_max_proto_version(SSLAutoVersion())?
+    else
+      h.fail("set_max_proto_version(SSLAutoVersion) should not raise")
+    end
+
+    ctx.dispose()
 
 class \nodoc\ iso _TestSSLContextSetMinProtoVersionAfterDispose is UnitTest
   """
