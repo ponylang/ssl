@@ -7,6 +7,7 @@ There are a number of ways to contribute. As this document is a little long, fee
 * [AI-assisted contributions](#ai-assisted-contributions)
 * [Bug report](#bug-report)
 * [How to contribute](#how-to-contribute)
+* [Building and testing](#building-and-testing)
 * [Pull request](#pull-request)
 
 Additional notes regarding formatting:
@@ -75,6 +76,18 @@ You can get help using GitHub via [the official documentation](https://help.gith
 * [Fork A Repo](https://help.github.com/articles/fork-a-repo/)
 * [Creating a pull request](https://help.github.com/articles/creating-a-pull-request/)
 * [Syncing a fork](https://help.github.com/articles/syncing-a-fork/)
+
+## Building and testing
+
+Run tests from the repository root with `make`:
+
+```bash
+make test ssl=3.0.x
+```
+
+The `ssl=` flag is required; see `AGENTS.md` for the supported values.
+
+Tests load certificates from `assets/` relative to the working directory, so the test binary must run from the repository root. Running it from anywhere else fails 43 of the tests without naming the path that could not be opened.
 
 ## Pull request
 
