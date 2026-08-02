@@ -332,9 +332,11 @@ class val SSLContext
 
   fun ref set_min_proto_version(version: ULong) ? =>
     """
-    Set minimum protocol version. Set to SSLAutoVersion, 0,
-    to automatically manage lowest version. Raises an error if the context has
-    been disposed.
+    Set minimum protocol version. Set to SSLAutoVersion, 0, to automatically
+    manage lowest version.
+
+    Raises an error if the context has been disposed, if the version is above
+    the current maximum, or if the SSL library rejects the version.
 
     Supported versions: SSL3Version, TLS1Version, TLS1u1Version,
                         TLS1u2Version, TLS1u3Version, DTLS1Version,
@@ -342,9 +344,15 @@ class val SSLContext
     """
     if _ctx.is_null() then error end
 
+    let new_min = version.ilong()
+    let max_v = get_max_proto_version()
+    if (new_min != 0) and (max_v != 0) and (new_min > max_v) then
+      error
+    end
+
     let result =
       @SSL_CTX_ctrl(
-        _ctx, _SSLCtrlSetMinProtoVersion(), version.ilong(), Pointer[None])
+        _ctx, _SSLCtrlSetMinProtoVersion(), new_min, Pointer[None])
     if result == 0 then
       error
     end
@@ -365,9 +373,11 @@ class val SSLContext
 
   fun ref set_max_proto_version(version: ULong) ? =>
     """
-    Set maximum protocol version. Set to SSLAutoVersion, 0,
-    to automatically manage higest version. Raises an error if the context has
-    been disposed.
+    Set maximum protocol version. Set to SSLAutoVersion, 0, to automatically
+    manage highest version.
+
+    Raises an error if the context has been disposed, if the version is below
+    the current minimum, or if the SSL library rejects the version.
 
     Supported versions: SSL3Version, TLS1Version, TLS1u1Version,
                         TLS1u2Version, TLS1u3Version, DTLS1Version,
@@ -375,9 +385,15 @@ class val SSLContext
     """
     if _ctx.is_null() then error end
 
+    let new_max = version.ilong()
+    let min_v = get_min_proto_version()
+    if (new_max != 0) and (min_v != 0) and (new_max < min_v) then
+      error
+    end
+
     let result =
       @SSL_CTX_ctrl(
-        _ctx, _SSLCtrlSetMaxProtoVersion(), version.ilong(), Pointer[None])
+        _ctx, _SSLCtrlSetMaxProtoVersion(), new_max, Pointer[None])
     if result == 0 then
       error
     end
