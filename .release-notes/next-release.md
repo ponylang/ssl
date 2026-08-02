@@ -49,3 +49,7 @@ Passing more than two gibibytes through an SSL session could silently lose data.
 
 `SSL.write` could report success when it encrypted nothing. A TLS 1.2 peer that started a renegotiation triggered this: the session was still `SSLReady`, but the write produced no ciphertext and the payload was gone. `write` now raises an error when it cannot encrypt the data. A fatal encryption failure also sets the session to `SSLError`.
 
+## Fix client sessions not reporting immediate handshake failures
+
+A client session created from a context with no usable protocol version or cipher suite stayed in `SSLHandshake` after construction instead of reporting `SSLError`. The session appeared to be negotiating when it could never succeed.
+
