@@ -43,10 +43,10 @@ SOURCE_FILES := $(shell find $(SRC_DIR) -name \*.pony)
 test: unit-tests examples
 
 unit-tests: $(tests_binary)
-	$^ --exclude=integration --sequential --shuffle
+	SSL_TEST_ASSETS="$(CURDIR)/assets" $^ --exclude=integration --sequential --shuffle
 
 test-one: $(tests_binary)
-	$^ --only="$(t)"
+	SSL_TEST_ASSETS="$(CURDIR)/assets" $^ --only="$(t)"
 
 $(tests_binary): $(GEN_FILES) $(SOURCE_FILES) | $(BUILD_DIR)
 	${GET_DEPENDENCIES_WITH}

@@ -34,6 +34,8 @@ make test-one t=TestName ssl=3.0.x   # run a single test by name
 make lint                            # pony-lint the sources; no ssl= needed
 ```
 
+`make test` sets `SSL_TEST_ASSETS` to the repository's `assets/` directory so the test binary finds the test certificates regardless of the working directory. When running the binary directly, either run from the repository root or set `SSL_TEST_ASSETS` to the absolute path of the `assets/` directory.
+
 `ssl=` is required for building and testing:
 
 | `ssl=` value | Backend |

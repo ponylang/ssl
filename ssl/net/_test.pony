@@ -322,7 +322,8 @@ class \nodoc\ iso _TestTCPSSLExpect is UnitTest
       try
         _TestSSLDefaultSessions(h)?
       else
-        h.fail("ssl stuff failed")
+        h.fail(
+          "ssl context setup failed; assets dir: " + _TestAssets.dir(h.env))
         return
       end
 
@@ -345,7 +346,8 @@ class \nodoc\ iso _TestTCPSSLWritev is UnitTest
       try
         _TestSSLDefaultSessions(h)?
       else
-        h.fail("ssl stuff failed")
+        h.fail(
+          "ssl context setup failed; assets dir: " + _TestAssets.dir(h.env))
         return
       end
 
@@ -380,7 +382,8 @@ class \nodoc\ iso _TestTCPSSLMute is UnitTest
       try
         _TestSSLDefaultSessions(h)?
       else
-        h.fail("ssl stuff failed")
+        h.fail(
+          "ssl context setup failed; assets dir: " + _TestAssets.dir(h.env))
         return
       end
 
@@ -419,7 +422,8 @@ class \nodoc\ iso _TestTCPSSLUnmute is UnitTest
       try
         _TestSSLDefaultSessions(h)?
       else
-        h.fail("ssl stuff failed")
+        h.fail(
+          "ssl context setup failed; assets dir: " + _TestAssets.dir(h.env))
         return
       end
 
@@ -441,20 +445,20 @@ class \nodoc\ iso _TestTCPSSLClientVerifyFalseWithHostname is UnitTest
   fun ref apply(h: TestHelper) =>
     h.expect_action("client connected")
 
-    let auth = FileAuth(h.env.root)
+    let cert_file = _TestAssets.cert(h)
+    let key_file = _TestAssets.key(h)
     let sslctx =
       try
         recover val
           SSLContext
-            .> set_authority(FilePath(auth, "assets/cert.pem"))?
-            .> set_cert(
-                FilePath(auth, "assets/cert.pem"),
-                FilePath(auth, "assets/key.pem"))?
+            .> set_authority(cert_file)?
+            .> set_cert(cert_file, key_file)?
             .> set_client_verify(false)
             .> set_server_verify(false)
         end
       else
-        h.fail("ssl context setup failed")
+        h.fail(
+          "ssl context setup failed; assets dir: " + _TestAssets.dir(h.env))
         return
       end
 
@@ -528,15 +532,18 @@ class \nodoc\ iso _TestTCPSSLPeerCertificateVerify is UnitTest
   fun ref apply(h: TestHelper) =>
     h.expect_action("client connected")
 
-    let auth = FileAuth(h.env.root)
+    let cert_file = _TestAssets.cert(h)
+    let key_file = _TestAssets.key(h)
     let client_ctx =
       try
         recover val
           SSLContext
-            .> set_authority(FilePath(auth, "assets/cert.pem"))?
+            .> set_authority(cert_file)?
         end
       else
-        h.fail("client ssl context setup failed")
+        h.fail(
+          "client ssl context setup failed; assets dir: "
+            + _TestAssets.dir(h.env))
         return
       end
     // set_server_verify(false): the server does not verify the client,
@@ -546,13 +553,13 @@ class \nodoc\ iso _TestTCPSSLPeerCertificateVerify is UnitTest
       try
         recover val
           SSLContext
-            .> set_cert(
-                FilePath(auth, "assets/cert.pem"),
-                FilePath(auth, "assets/key.pem"))?
+            .> set_cert(cert_file, key_file)?
             .> set_server_verify(false)
         end
       else
-        h.fail("server ssl context setup failed")
+        h.fail(
+          "server ssl context setup failed; assets dir: "
+            + _TestAssets.dir(h.env))
         return
       end
 
@@ -628,28 +635,31 @@ class \nodoc\ iso _TestTCPSSLPeerCertificateHostnameMismatch is UnitTest
   fun ref apply(h: TestHelper) =>
     h.expect_action("client auth failed")
 
-    let auth = FileAuth(h.env.root)
+    let cert_file = _TestAssets.cert(h)
+    let key_file = _TestAssets.key(h)
     let client_ctx =
       try
         recover val
           SSLContext
-            .> set_authority(FilePath(auth, "assets/cert.pem"))?
+            .> set_authority(cert_file)?
         end
       else
-        h.fail("client ssl context setup failed")
+        h.fail(
+          "client ssl context setup failed; assets dir: "
+            + _TestAssets.dir(h.env))
         return
       end
     let server_ctx =
       try
         recover val
           SSLContext
-            .> set_cert(
-                FilePath(auth, "assets/cert.pem"),
-                FilePath(auth, "assets/key.pem"))?
+            .> set_cert(cert_file, key_file)?
             .> set_server_verify(false)
         end
       else
-        h.fail("server ssl context setup failed")
+        h.fail(
+          "server ssl context setup failed; assets dir: "
+            + _TestAssets.dir(h.env))
         return
       end
 
@@ -721,28 +731,31 @@ class \nodoc\ iso _TestTCPSSLAuthFailCalledOnce is UnitTest
     h.expect_action("client auth failed")
     h.expect_action("client closed")
 
-    let auth = FileAuth(h.env.root)
+    let cert_file = _TestAssets.cert(h)
+    let key_file = _TestAssets.key(h)
     let client_ctx =
       try
         recover val
           SSLContext
-            .> set_authority(FilePath(auth, "assets/cert.pem"))?
+            .> set_authority(cert_file)?
         end
       else
-        h.fail("client ssl context setup failed")
+        h.fail(
+          "client ssl context setup failed; assets dir: "
+            + _TestAssets.dir(h.env))
         return
       end
     let server_ctx =
       try
         recover val
           SSLContext
-            .> set_cert(
-                FilePath(auth, "assets/cert.pem"),
-                FilePath(auth, "assets/key.pem"))?
+            .> set_cert(cert_file, key_file)?
             .> set_server_verify(false)
         end
       else
-        h.fail("server ssl context setup failed")
+        h.fail(
+          "server ssl context setup failed; assets dir: "
+            + _TestAssets.dir(h.env))
         return
       end
 
@@ -892,7 +905,8 @@ class \nodoc\ iso _TestTCPSSLThrottle is UnitTest
       try
         _TestSSLDefaultSessions(h)?
       else
-        h.fail("ssl stuff failed")
+        h.fail(
+          "ssl context setup failed; assets dir: " + _TestAssets.dir(h.env))
         return
       end
 
@@ -909,14 +923,13 @@ class \nodoc\ iso _TestWindowsLoadRootCertificates is UnitTest
 
   fun ref apply(h: TestHelper) =>
     try
-      let auth = FileAuth(h.env.root)
+      let cert_file = _TestAssets.cert(h)
+      let key_file = _TestAssets.key(h)
       let ssl_ctx =
         recover val
           SSLContext
             .> set_authority(None, None)?
-            .> set_cert(
-              FilePath(auth, "assets/cert.pem"),
-              FilePath(auth, "assets/key.pem"))?
+            .> set_cert(cert_file, key_file)?
             .> set_client_verify(false)
             .> set_server_verify(false)
         end
@@ -928,7 +941,8 @@ class \nodoc\ iso _TestWindowsLoadRootCertificates is UnitTest
         SSLConnection(_TestTCPExpectNotify(h, false), consume ssl_client),
         SSLConnection(_TestTCPExpectNotify(h, true), consume ssl_server))
     else
-      h.fail("set_authority failed")
+      h.fail(
+        "set_authority failed; assets dir: " + _TestAssets.dir(h.env))
     end
 
 class \nodoc\ _TestTCPThrottleReceiveNotify is TCPConnectionNotify
@@ -1267,6 +1281,29 @@ class \nodoc\ _TestTCPUnmuteReceiveNotify is TCPConnectionNotify
   fun ref connect_failed(conn: TCPConnection ref) =>
     _h.fail_action("receiver connect failed")
 
+primitive \nodoc\ _TestAssets
+  """
+  Resolves paths to the test certificate and key. Reads `SSL_TEST_ASSETS`
+  from the environment for an absolute assets directory; falls back to
+  `assets/` relative to the working directory.
+  """
+  fun val dir(env: Env): String val =>
+    let prefix = "SSL_TEST_ASSETS="
+    for v in env.vars.values() do
+      if v.at(prefix) then
+        return v.substring(prefix.size().isize())
+      end
+    end
+    "assets"
+
+  fun val cert(h: TestHelper): FilePath =>
+    let d = dir(h.env)
+    FilePath(FileAuth(h.env.root), d + "/cert.pem")
+
+  fun val key(h: TestHelper): FilePath =>
+    let d = dir(h.env)
+    FilePath(FileAuth(h.env.root), d + "/key.pem")
+
 primitive \nodoc\ _TestSSLDefaultSessions
   fun val apply(h: TestHelper): (SSL iso^, SSL iso^) ? =>
     """
@@ -1341,18 +1378,17 @@ primitive \nodoc\ _TestSSLContext
     setting is a parameter, so a test that turns on what it is testing shows it
     at the call site.
     """
-    let auth = FileAuth(h.env.root)
+    let cert_file = _TestAssets.cert(h)
+    let key_file = _TestAssets.key(h)
 
     try
       recover val
         let ctx: SSLContext ref = SSLContext
         if cert then
-          ctx.set_cert(
-            FilePath(auth, "assets/cert.pem"),
-            FilePath(auth, "assets/key.pem"))?
+          ctx.set_cert(cert_file, key_file)?
         end
         if authority then
-          ctx.set_authority(FilePath(auth, "assets/cert.pem"))?
+          ctx.set_authority(cert_file)?
         end
         ctx.set_client_verify(client_verify)
         ctx.set_server_verify(server_verify)
@@ -1365,7 +1401,8 @@ primitive \nodoc\ _TestSSLContext
         ctx
       end
     else
-      h.fail("ssl context setup failed")
+      h.fail(
+        "ssl context setup failed; assets dir: " + _TestAssets.dir(h.env))
       error
     end
 
@@ -2006,22 +2043,22 @@ class \nodoc\ iso _TestSSLReceiveALPNFatalWithQueuedError is UnitTest
     resolver: ALPNProtocolResolver val)
     : SSLState
   =>
-    let auth = FileAuth(h.env.root)
+    let cert_file = _TestAssets.cert(h)
+    let key_file = _TestAssets.key(h)
     let sslctx =
       try
         recover val
           SSLContext
-            .> set_authority(FilePath(auth, "assets/cert.pem"))?
-            .> set_cert(
-                FilePath(auth, "assets/cert.pem"),
-                FilePath(auth, "assets/key.pem"))?
+            .> set_authority(cert_file)?
+            .> set_cert(cert_file, key_file)?
             .> set_client_verify(false)
             .> set_server_verify(false)
             .> alpn_set_client_protocols(["h2"])
             .> alpn_set_resolver(resolver)
         end
       else
-        h.fail("ssl context setup failed")
+        h.fail(
+          "ssl context setup failed; assets dir: " + _TestAssets.dir(h.env))
         return SSLHandshake
       end
 
@@ -2456,29 +2493,32 @@ class \nodoc\ iso _TestSSLALPNSelectedOnAuthFail is UnitTest
   fun name(): String => "net/ssl/SSL.alpn_selected/on_auth_fail"
 
   fun apply(h: TestHelper) =>
-    let auth = FileAuth(h.env.root)
+    let cert_file = _TestAssets.cert(h)
+    let key_file = _TestAssets.key(h)
     let client_ctx =
       try
         recover val
           SSLContext
-            .> set_authority(FilePath(auth, "assets/cert.pem"))?
+            .> set_authority(cert_file)?
             .> alpn_set_client_protocols(["h2"])
         end
       else
-        h.fail("client ssl context setup failed")
+        h.fail(
+          "client ssl context setup failed; assets dir: "
+            + _TestAssets.dir(h.env))
         return
       end
     let server_ctx =
       try
         recover val
           SSLContext
-            .> set_cert(
-                FilePath(auth, "assets/cert.pem"),
-                FilePath(auth, "assets/key.pem"))?
+            .> set_cert(cert_file, key_file)?
             .> alpn_set_resolver(ALPNStandardProtocolResolver(["h2"]))
         end
       else
-        h.fail("server ssl context setup failed")
+        h.fail(
+          "server ssl context setup failed; assets dir: "
+            + _TestAssets.dir(h.env))
         return
       end
 
@@ -3135,21 +3175,21 @@ primitive \nodoc\ _TestALPNContext
     A context that both advertises and resolves the "h2" protocol, so a session
     pair made from it negotiates ALPN.
     """
-    let auth = FileAuth(h.env.root)
+    let cert_file = _TestAssets.cert(h)
+    let key_file = _TestAssets.key(h)
     try
       recover val
         SSLContext
-          .> set_authority(FilePath(auth, "assets/cert.pem"))?
-          .> set_cert(
-              FilePath(auth, "assets/cert.pem"),
-              FilePath(auth, "assets/key.pem"))?
+          .> set_authority(cert_file)?
+          .> set_cert(cert_file, key_file)?
           .> set_client_verify(false)
           .> set_server_verify(false)
           .> alpn_set_client_protocols(["h2"])
           .> alpn_set_resolver(resolver)
       end
     else
-      h.fail("ssl context setup failed")
+      h.fail(
+        "ssl context setup failed; assets dir: " + _TestAssets.dir(h.env))
       error
     end
 
@@ -3736,19 +3776,21 @@ class \nodoc\ iso _TestSSLContextSetAuthorityAfterDispose is UnitTest
   fun name(): String => "net/ssl/SSLContext.set_authority/after_dispose"
 
   fun apply(h: TestHelper) =>
-    let auth = FileAuth(h.env.root)
+    let cert_file = _TestAssets.cert(h)
     let ctx = SSLContext
 
     try
-      ctx.set_authority(FilePath(auth, "assets/cert.pem"))?
+      ctx.set_authority(cert_file)?
     else
-      h.fail("set_authority() on a live context should not raise")
+      h.fail(
+        "set_authority() on a live context should not raise; assets dir: "
+          + _TestAssets.dir(h.env))
     end
 
     ctx.dispose()
 
     try
-      ctx.set_authority(FilePath(auth, "assets/cert.pem"))?
+      ctx.set_authority(cert_file)?
       h.fail("set_authority() on a disposed context should raise")
     end
 
@@ -3760,21 +3802,22 @@ class \nodoc\ iso _TestSSLContextSetCertAfterDispose is UnitTest
   fun name(): String => "net/ssl/SSLContext.set_cert/after_dispose"
 
   fun apply(h: TestHelper) =>
-    let auth = FileAuth(h.env.root)
-    let cert = FilePath(auth, "assets/cert.pem")
-    let key = FilePath(auth, "assets/key.pem")
+    let cert_file = _TestAssets.cert(h)
+    let key_file = _TestAssets.key(h)
     let ctx = SSLContext
 
     try
-      ctx.set_cert(cert, key)?
+      ctx.set_cert(cert_file, key_file)?
     else
-      h.fail("set_cert() on a live context should not raise")
+      h.fail(
+        "set_cert() on a live context should not raise; assets dir: "
+          + _TestAssets.dir(h.env))
     end
 
     ctx.dispose()
 
     try
-      ctx.set_cert(cert, key)?
+      ctx.set_cert(cert_file, key_file)?
       h.fail("set_cert() on a disposed context should raise")
     end
 
@@ -3897,15 +3940,14 @@ class \nodoc\ iso _TestSSLContextAllowTLSV1u2 is UnitTest
     Whether a client and a server session from a TLS 1.2 only context complete
     a handshake, having disabled and then re-enabled TLS 1.2 as asked.
     """
-    let auth = FileAuth(h.env.root)
+    let cert_file = _TestAssets.cert(h)
+    let key_file = _TestAssets.key(h)
     let sslctx =
       try
         recover val
           let ctx = SSLContext
-            .> set_authority(FilePath(auth, "assets/cert.pem"))?
-            .> set_cert(
-                FilePath(auth, "assets/cert.pem"),
-                FilePath(auth, "assets/key.pem"))?
+            .> set_authority(cert_file)?
+            .> set_cert(cert_file, key_file)?
             .> set_client_verify(false)
             .> set_server_verify(false)
             .> set_min_proto_version(TLS1u2Version())?
@@ -3915,7 +3957,8 @@ class \nodoc\ iso _TestSSLContextAllowTLSV1u2 is UnitTest
           ctx
         end
       else
-        h.fail("ssl context setup failed")
+        h.fail(
+          "ssl context setup failed; assets dir: " + _TestAssets.dir(h.env))
         return false
       end
 

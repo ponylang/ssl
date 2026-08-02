@@ -194,6 +194,7 @@ switch ($Command.ToLower())
     }
 
     $testFile = (BuildTest)[-1]
+    $env:SSL_TEST_ASSETS = Join-Path $rootDir "assets"
     Write-Host "$testFile --sequential --shuffle"
     & "$testFile" --sequential --shuffle
     if ($LastExitCode -ne 0) { throw "Error" }
