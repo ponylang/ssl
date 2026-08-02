@@ -10,8 +10,9 @@ use @SSL_CTX_ctrl[ILong](
   op: I32,
   arg: ILong,
   parg: Pointer[None])
-use @TLS_method[Pointer[None]]() if "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl"
-use @SSL_CTX_new[Pointer[_SSLContext]](method: Pointer[None])
+use @TLS_method[Pointer[_SSLMethod]]()
+  if "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl"
+use @SSL_CTX_new[Pointer[_SSLContext]](method: Pointer[_SSLMethod])
 use @SSL_CTX_free[None](ctx: Pointer[_SSLContext] tag)
 use @SSL_CTX_clear_options[U64](ctx: Pointer[_SSLContext] tag, opts: U64) if "openssl_3.0.x" or "openssl_4.0.x"
 use @SSL_CTX_clear_options[ULong](ctx: Pointer[_SSLContext] tag, opts: ULong)
@@ -70,6 +71,7 @@ use @SSL_CTX_set_alpn_protos[I32](
   protos_len: U32)
   if "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl"
 
+primitive _SSLMethod
 primitive _SSLContext
 primitive _X509Store
 primitive _CertStore
