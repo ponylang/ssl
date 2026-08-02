@@ -83,6 +83,7 @@ actor \nodoc\ Main is TestList
     test(_TestTCPSSLClientVerifyFalseWithHostname)
     test(_TestTCPSSLPeerCertificateVerify)
     test(_TestTCPSSLPeerCertificateHostnameMismatch)
+    test(_TestTCPSSLAuthFailCalledOnce)
     test(_TestTCPSSLNonTLSPeerDoesNotAuthFail)
     ifdef windows then
       test(_TestWindowsLoadRootCertificates)
@@ -691,6 +692,107 @@ class \nodoc\ _TestTCPSSLPeerCertificateHostnameMismatchClientNotify
     _h.complete(true)
 
 class \nodoc\ _TestTCPSSLPeerCertificateHostnameMismatchServerNotify
+  is TCPConnectionNotify
+  let _h: TestHelper
+
+  new iso create(h: TestHelper) =>
+    _h = h
+
+  fun ref connect_failed(conn: TCPConnection ref) =>
+    _h.fail_action("server connect failed")
+
+class \nodoc\ iso _TestTCPSSLAuthFailCalledOnce is UnitTest
+  """
+  `auth_failed` is called once per failure, not once per `_poll` that reaches
+  `SSLAuthFail`. The second `_poll` comes from `closed`, which calls `_poll`
+  before `_ssl.dispose()`, so the session is still in `SSLAuthFail` at that
+  point.
+
+  Holding completion until `closed` is what makes this test sensitive to the
+  double call. A test that completes on `auth_failed` finishes before `closed`
+  fires its `_poll`.
+  """
+  fun name(): String => "net/TCPSSL.auth_failed_called_once"
+  fun exclusion_group(): String => "network"
+
+  fun ref apply(h: TestHelper) =>
+    h.expect_action("client auth failed")
+    h.expect_action("client closed")
+
+    let auth = FileAuth(h.env.root)
+    let client_ctx =
+      try
+        recover val
+          SSLContext
+            .> set_authority(FilePath(auth, "assets/cert.pem"))?
+        end
+      else
+        h.fail("client ssl context setup failed")
+        return
+      end
+    let server_ctx =
+      try
+        recover val
+          SSLContext
+            .> set_cert(
+                FilePath(auth, "assets/cert.pem"),
+                FilePath(auth, "assets/key.pem"))?
+            .> set_server_verify(false)
+        end
+      else
+        h.fail("server ssl context setup failed")
+        return
+      end
+
+    let ssl_client =
+      try
+        client_ctx.client("nomatch.example.com")?
+      else
+        h.fail("failed getting ssl client session")
+        return
+      end
+    let ssl_server =
+      try
+        server_ctx.server()?
+      else
+        h.fail("failed getting ssl server session")
+        return
+      end
+
+    _TestTCP(h)(
+      SSLConnection(
+        _TestTCPSSLAuthFailCalledOnceClientNotify(h),
+        consume ssl_client),
+      SSLConnection(
+        _TestTCPSSLAuthFailCalledOnceServerNotify(h),
+        consume ssl_server))
+
+class \nodoc\ _TestTCPSSLAuthFailCalledOnceClientNotify
+  is TCPConnectionNotify
+  let _h: TestHelper
+  var _count: USize = 0
+
+  new iso create(h: TestHelper) =>
+    _h = h
+
+  fun ref connected(conn: TCPConnection ref) =>
+    _h.fail("connected fired despite hostname mismatch")
+
+  fun ref connect_failed(conn: TCPConnection ref) =>
+    _h.fail_action("client connect failed")
+
+  fun ref auth_failed(conn: TCPConnection ref) =>
+    _count = _count + 1
+    if _count > 1 then
+      _h.fail("auth_failed called more than once")
+    end
+    _h.complete_action("client auth failed")
+
+  fun ref closed(conn: TCPConnection ref) =>
+    _h.complete_action("client closed")
+    _h.complete(true)
+
+class \nodoc\ _TestTCPSSLAuthFailCalledOnceServerNotify
   is TCPConnectionNotify
   let _h: TestHelper
 

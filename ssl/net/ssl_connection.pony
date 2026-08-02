@@ -17,6 +17,7 @@ class SSLConnection is TCPConnectionNotify
   var _connected: Bool = false
   var _expect: USize = 0
   var _closed: Bool = false
+  var _auth_failed: Bool = false
   let _pending: List[ByteSeq] = _pending.create()
   var _accept_pending: Bool = false
 
@@ -168,7 +169,10 @@ class SSLConnection is TCPConnectionNotify
         end
       end
     | SSLAuthFail =>
-      _notify.auth_failed(conn)
+      if not _auth_failed then
+        _auth_failed = true
+        _notify.auth_failed(conn)
+      end
 
       if not _closed then
         conn.close()
