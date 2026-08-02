@@ -14,6 +14,7 @@ All notable changes to this project will be documented in this file. This projec
 - Fix read and alpn_selected returning data from authentication-failed sessions ([PR #136](https://github.com/ponylang/ssl/pull/136))
 - Fix ssl/net silently losing data past two gibibytes ([PR #138](https://github.com/ponylang/ssl/pull/138))
 - Fix SSL.write silently losing data when encryption fails ([PR #139](https://github.com/ponylang/ssl/pull/139))
+- Fix client sessions not reporting immediate handshake failures ([PR #140](https://github.com/ponylang/ssl/pull/140))
 
 ### Added
 
