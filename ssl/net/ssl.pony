@@ -221,8 +221,7 @@ class SSL
       @SSL_set_accept_state(_ssl)
     else
       @SSL_set_connect_state(_ssl)
-      @ERR_clear_error()
-      @SSL_do_handshake(_ssl)
+      _do_handshake()
     end
 
   fun box alpn_selected(): (ALPNProtocolName | None) =>
@@ -390,23 +389,7 @@ class SSL
     end
 
     if _state is SSLHandshake then
-      @ERR_clear_error()
-      let r = @SSL_do_handshake(_ssl)
-
-      if r > 0 then
-        _verify_hostname()
-      else
-        match @SSL_get_error(_ssl, r)
-        | _SSLErrorCode.ssl() | _SSLErrorCode.syscall() =>
-          _state = if _peer_auth_failed() then SSLAuthFail else SSLError end
-        | _SSLErrorCode.zero_return() =>
-          _state = SSLError
-        | _SSLErrorCode.want_read() =>
-          None
-        else
-          _Unreachable()
-        end
-      end
+      _do_handshake()
     end
 
   fun can_send(): Bool =>
@@ -528,6 +511,30 @@ class SSL
     end
 
     false
+
+  fun ref _do_handshake() =>
+    """
+    Run one step of the TLS handshake and classify the outcome. Sets `_state`
+    to `SSLReady`, `SSLAuthFail`, or `SSLError` when the handshake settles,
+    and leaves it at `SSLHandshake` when more data is needed.
+    """
+    @ERR_clear_error()
+    let r = @SSL_do_handshake(_ssl)
+
+    if r > 0 then
+      _verify_hostname()
+    else
+      match @SSL_get_error(_ssl, r)
+      | _SSLErrorCode.ssl() | _SSLErrorCode.syscall() =>
+        _state = if _peer_auth_failed() then SSLAuthFail else SSLError end
+      | _SSLErrorCode.zero_return() =>
+        _state = SSLError
+      | _SSLErrorCode.want_read() =>
+        None
+      else
+        _Unreachable()
+      end
+    end
 
   fun ref _verify_hostname() =>
     """
