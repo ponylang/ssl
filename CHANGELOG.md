@@ -16,6 +16,7 @@ All notable changes to this project will be documented in this file. This projec
 - Fix SSL.write silently losing data when encryption fails ([PR #139](https://github.com/ponylang/ssl/pull/139))
 - Fix client sessions not reporting immediate handshake failures ([PR #140](https://github.com/ponylang/ssl/pull/140))
 - Fix SSLConnection calling auth_failed twice for one failure ([PR #141](https://github.com/ponylang/ssl/pull/141))
+- Reject inverted protocol version range in SSLContext ([PR #142](https://github.com/ponylang/ssl/pull/142))
 
 ### Added
 
