@@ -2707,8 +2707,8 @@ class \nodoc\ iso _TestSSLSendAfterDispose is UnitTest
 class \nodoc\ iso _TestSSLWriteAfterDispose is UnitTest
   """
   `write` on a disposed session does nothing and does not raise. Being disposed
-  is not an error, and `write`'s only error means the handshake is not
-  complete, which is not what happened here.
+  is not an error: `write` raises when the handshake is not complete or when
+  `SSL_write` cannot encrypt, neither of which is what happened here.
 
   The session reaches `SSLReady` first, so the dispose is the only reason
   `write` could have to stop, and `state` reports `SSLDisposed` afterwards.
