@@ -43,6 +43,15 @@ actor \nodoc\ Main is TestList
     test(_TestSSLALPNSelectedOnAuthFail)
     test(_TestSSLReceiveOnAuthFail)
     test(_TestSSLReceiveOnError)
+    test(_TestSSLCloseFromReady)
+    test(_TestSSLCloseIdempotent)
+    test(_TestSSLCloseFromWrongStates)
+    test(_TestSSLCloseAfterDispose)
+    test(_TestSSLPeerCloseNotifyDetected)
+    test(_TestSSLBufferedDataDrainedOnCloseNotify)
+    test(_TestSSLReceiveInClosed)
+    test(_TestSSLWriteBlockedInClosed)
+    test(_TestSSLBidirectionalCloseRoundtrip)
     test(_TestSSLDisposeBeforeHandshake)
     test(_TestSSLDisposeTwice)
     test(_TestSSLReadAfterDispose)
@@ -4048,6 +4057,427 @@ class \nodoc\ iso _TestALPNProtocolListRoundTrip is Property1[Array[String]]
       h.assert_true(sample(i)? == decoded(i)?)
       i = i + 1
     end
+
+class \nodoc\ iso _TestSSLCloseFromReady is UnitTest
+  """
+  Calling `close` on a ready session sets the state to `SSLClosed` and queues
+  a `close_notify` alert in the output BIO.
+  """
+  fun name(): String => "net/ssl/SSL.close/from_ready"
+
+  fun apply(h: TestHelper) =>
+    (let client, let server) =
+      try
+        _TestSSLSessionPair(h)?
+      else
+        h.fail("could not establish an SSL session pair")
+        return
+      end
+
+    h.assert_false(client.can_send(), "nothing queued before close")
+
+    client.close()
+
+    h.assert_true(
+      client.state() is SSLClosed,
+      "state should be SSLClosed after close")
+    h.assert_true(
+      client.can_send(),
+      "close_notify should be queued in the output BIO")
+
+    client.dispose()
+    server.dispose()
+
+class \nodoc\ iso _TestSSLCloseIdempotent is UnitTest
+  """
+  A second `close` call is a no-op — it produces no additional output.
+  """
+  fun name(): String => "net/ssl/SSL.close/idempotent"
+
+  fun apply(h: TestHelper) =>
+    (let client, let server) =
+      try
+        _TestSSLSessionPair(h)?
+      else
+        h.fail("could not establish an SSL session pair")
+        return
+      end
+
+    client.close()
+
+    try
+      while client.can_send() do
+        client.send()?
+      end
+    end
+
+    client.close()
+
+    h.assert_false(
+      client.can_send(),
+      "second close should produce no additional output")
+    h.assert_true(
+      client.state() is SSLClosed,
+      "state should still be SSLClosed")
+
+    client.dispose()
+    server.dispose()
+
+class \nodoc\ iso _TestSSLCloseFromWrongStates is UnitTest
+  """
+  `close` is a no-op from `SSLHandshake`, `SSLAuthFail`, and `SSLError`.
+  """
+  fun name(): String => "net/ssl/SSL.close/from_wrong_states"
+
+  fun apply(h: TestHelper) =>
+    // SSLHandshake: a fresh client before any handshake bytes are exchanged
+    (let client, let server) =
+      try
+        _TestSSLSessionPair.fresh(h)?
+      else
+        h.fail("could not create fresh sessions")
+        return
+      end
+
+    h.assert_true(
+      client.state() is SSLHandshake,
+      "client should start in SSLHandshake")
+
+    client.close()
+
+    h.assert_true(
+      client.state() is SSLHandshake,
+      "close should not change state from SSLHandshake")
+
+    // SSLAuthFail: a verifying client whose peer presents an untrusted chain
+    (let auth_client, let auth_server) =
+      try
+        _TestSSLSessionPair.attempt(
+          h,
+          _TestSSLContext(h where client_verify = true)?,
+          _TestSSLContext(h where cert = true)?)?
+      else
+        h.fail("could not create an auth-fail session pair")
+        return
+      end
+
+    h.assert_true(
+      auth_client.state() is SSLAuthFail,
+      "client should be in SSLAuthFail")
+
+    auth_client.close()
+
+    h.assert_true(
+      auth_client.state() is SSLAuthFail,
+      "close should not change state from SSLAuthFail")
+
+    auth_client.dispose()
+    auth_server.dispose()
+
+    // SSLError: feed garbage to a fresh client to break its handshake
+    client.receive("NOT A TLS RECORD")
+
+    h.assert_true(
+      client.state() is SSLError,
+      "client should be in SSLError after garbage")
+
+    client.close()
+
+    h.assert_true(
+      client.state() is SSLError,
+      "close should not change state from SSLError")
+
+    client.dispose()
+    server.dispose()
+
+class \nodoc\ iso _TestSSLCloseAfterDispose is UnitTest
+  """
+  `close` after `dispose` is a no-op.
+  """
+  fun name(): String => "net/ssl/SSL.close/after_dispose"
+
+  fun apply(h: TestHelper) =>
+    (let client, let server) =
+      try
+        _TestSSLSessionPair(h)?
+      else
+        h.fail("could not establish an SSL session pair")
+        return
+      end
+
+    client.dispose()
+    client.close()
+
+    h.assert_true(
+      client.state() is SSLDisposed,
+      "state should still be SSLDisposed")
+
+    server.dispose()
+
+class \nodoc\ iso _TestSSLPeerCloseNotifyDetected is UnitTest
+  """
+  When one session sends `close_notify`, the other detects it via `read` and
+  transitions to `SSLClosed`, not `SSLError`.
+  """
+  fun name(): String => "net/ssl/SSL.read/peer_close_notify"
+
+  fun apply(h: TestHelper) =>
+    (let client, let server) =
+      try
+        _TestSSLSessionPair(h)?
+      else
+        h.fail("could not establish an SSL session pair")
+        return
+      end
+
+    client.close()
+
+    try
+      _TestSSLTransfer(client, server)?
+    else
+      h.fail("could not transfer close_notify bytes")
+      client.dispose()
+      server.dispose()
+      return
+    end
+
+    match \exhaustive\ server.read()
+    | let _: Array[U8] iso =>
+      h.fail("server read produced data from a close_notify")
+    | None => None
+    end
+
+    h.assert_true(
+      server.state() is SSLClosed,
+      "server should be SSLClosed after receiving peer's close_notify")
+
+    client.dispose()
+    server.dispose()
+
+class \nodoc\ iso _TestSSLBufferedDataDrainedOnCloseNotify is UnitTest
+  """
+  When `expect`-mode has accumulated partial data and the peer sends
+  `close_notify`, the buffered data is returned before the state transitions
+  to `SSLClosed`.
+  """
+  fun name(): String => "net/ssl/SSL.read/buffered_drain_on_close_notify"
+
+  fun apply(h: TestHelper) =>
+    (let client, let server) =
+      try
+        _TestSSLSessionPair(h)?
+      else
+        h.fail("could not establish an SSL session pair")
+        return
+      end
+
+    // Send 50 bytes, read with expect=100 to accumulate in _read_buf
+    try
+      client.write(recover val Array[U8].init('A', 50) end)?
+      _TestSSLTransfer(client, server)?
+    else
+      h.fail("could not send application data")
+      client.dispose()
+      server.dispose()
+      return
+    end
+
+    match \exhaustive\ server.read(100)
+    | let _: Array[U8] iso =>
+      h.fail("50 bytes should not satisfy a read of 100")
+      client.dispose()
+      server.dispose()
+      return
+    | None => None
+    end
+
+    h.assert_true(
+      server.state() is SSLReady,
+      "server should still be SSLReady with partial data buffered")
+
+    // Now client sends close_notify
+    client.close()
+
+    try
+      _TestSSLTransfer(client, server)?
+    else
+      h.fail("could not transfer close_notify bytes")
+      client.dispose()
+      server.dispose()
+      return
+    end
+
+    // The read should drain the 50 buffered bytes before transitioning
+    match \exhaustive\ server.read(100)
+    | let data: Array[U8] iso =>
+      h.assert_eq[USize](
+        50,
+        (consume data).size(),
+        "buffered data should be drained on close_notify")
+    | None =>
+      h.fail("read should have returned the 50 buffered bytes")
+    end
+
+    h.assert_true(
+      server.state() is SSLClosed,
+      "server should be SSLClosed after draining buffered data")
+
+    client.dispose()
+    server.dispose()
+
+class \nodoc\ iso _TestSSLReceiveInClosed is UnitTest
+  """
+  `receive` keeps working in `SSLClosed` — data fed into the BIO after
+  `close` is not silently dropped, and `read` can still decrypt it.
+  """
+  fun name(): String => "net/ssl/SSL.receive/in_closed"
+
+  fun apply(h: TestHelper) =>
+    (let client, let server) =
+      try
+        _TestSSLSessionPair(h)?
+      else
+        h.fail("could not establish an SSL session pair")
+        return
+      end
+
+    // Server encrypts data before client closes
+    try
+      server.write("hello")?
+    else
+      h.fail("server could not encrypt application data")
+      client.dispose()
+      server.dispose()
+      return
+    end
+
+    client.close()
+
+    h.assert_true(
+      client.state() is SSLClosed,
+      "client should be SSLClosed")
+
+    // Transfer the encrypted bytes to the client after close — this calls
+    // client.receive() in SSLClosed state
+    try
+      _TestSSLTransfer(server, client)?
+    else
+      h.fail("could not transfer data to closed client")
+      client.dispose()
+      server.dispose()
+      return
+    end
+
+    match \exhaustive\ client.read()
+    | let data: Array[U8] iso =>
+      h.assert_eq[String]("hello", String.from_array(consume data))
+    | None =>
+      h.fail("read should return data received after close")
+    end
+
+    client.dispose()
+    server.dispose()
+
+class \nodoc\ iso _TestSSLWriteBlockedInClosed is UnitTest
+  """
+  `write` raises an error in `SSLClosed`.
+  """
+  fun name(): String => "net/ssl/SSL.write/blocked_in_closed"
+
+  fun apply(h: TestHelper) =>
+    (let client, let server) =
+      try
+        _TestSSLSessionPair(h)?
+      else
+        h.fail("could not establish an SSL session pair")
+        return
+      end
+
+    client.close()
+
+    h.assert_true(
+      client.state() is SSLClosed,
+      "client should be SSLClosed")
+
+    let write_succeeded =
+      try
+        client.write("should fail")?
+        true
+      else
+        false
+      end
+
+    h.assert_false(
+      write_succeeded,
+      "write should raise an error in SSLClosed")
+
+    client.dispose()
+    server.dispose()
+
+class \nodoc\ iso _TestSSLBidirectionalCloseRoundtrip is UnitTest
+  """
+  Full bidirectional shutdown: one side calls `close`, the other detects it
+  via `read` and calls `close` in response. Both sides end up in `SSLClosed`
+  with each other's `close_notify` delivered.
+  """
+  fun name(): String => "net/ssl/SSL.close/bidirectional_roundtrip"
+
+  fun apply(h: TestHelper) =>
+    (let client, let server) =
+      try
+        _TestSSLSessionPair(h)?
+      else
+        h.fail("could not establish an SSL session pair")
+        return
+      end
+
+    // Client initiates shutdown
+    client.close()
+
+    try
+      _TestSSLTransfer(client, server)?
+    else
+      h.fail("could not transfer client's close_notify to server")
+      client.dispose()
+      server.dispose()
+      return
+    end
+
+    // Server reads and detects close_notify
+    server.read()
+
+    h.assert_true(
+      server.state() is SSLClosed,
+      "server should be SSLClosed after receiving client's close_notify")
+
+    // Server responds with its own close_notify
+    server.close()
+
+    h.assert_true(
+      server.can_send(),
+      "server's response close_notify should be queued in the output BIO")
+
+    try
+      _TestSSLTransfer(server, client)?
+    else
+      h.fail("could not transfer server's close_notify to client")
+      client.dispose()
+      server.dispose()
+      return
+    end
+
+    // Client reads server's close_notify response
+    client.read()
+
+    h.assert_true(
+      client.state() is SSLClosed,
+      "client should still be SSLClosed")
+    h.assert_true(
+      server.state() is SSLClosed,
+      "server should still be SSLClosed")
+
+    client.dispose()
+    server.dispose()
 
 class \nodoc\ iso _TestMatchNameEmptyName is UnitTest
   fun name(): String => "net/ssl/X509._match_name/empty_name"

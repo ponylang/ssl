@@ -28,6 +28,7 @@ use @SSL_read[I32](ssl: Pointer[_SSL], buf: Pointer[U8] tag, len: I32)
 use @SSL_write[I32](ssl: Pointer[_SSL], buf: Pointer[U8] tag, len: I32)
 use @BIO_read[I32](bio: Pointer[_BIO] tag, buf: Pointer[U8] tag, len: I32)
 use @BIO_write[I32](bio: Pointer[_BIO] tag, buf: Pointer[U8] tag, len: I32)
+use @SSL_shutdown[I32](ssl: Pointer[_SSL])
 use @SSL_get_error[I32](ssl: Pointer[_SSL], ret: I32)
 use @SSL_get_verify_result[ILong](ssl: Pointer[_SSL] tag)
 use @ERR_clear_error[None]()
@@ -127,13 +128,30 @@ primitive SSLReady
   The handshake is complete. Application data can be sent and received.
   """
 
+primitive SSLClosed
+  """
+  The TLS session closed cleanly. Either the peer sent `close_notify`
+  (detected by `read`) or the consumer called `close`. The write side is
+  shut down: `write` raises an error. The read side stays open: `receive`
+  and `read` keep working so the peer's remaining data and `close_notify`
+  response can still flow in.
+
+  A consumer performing a graceful socket close should finish its queued
+  writes (via `write`) before calling `close`, then pump `can_send`/`send`
+  to deliver the `close_notify`, and call `dispose` when done. A hard
+  close skips `close` and calls `dispose` directly.
+  """
+
 primitive SSLError
   """
-  The session failed for a reason other than the one `SSLAuthFail` names. A
-  session reports this when its peer did not speak TLS, shared no protocol
-  version, rejected the certificate the session presented, or presented one
-  that would not parse. A session created with verification off reports it for
+  The session failed with a protocol error or an I/O error. A session
+  reports this when its peer did not speak TLS, shared no protocol version,
+  rejected the certificate the session presented, or presented one that
+  would not parse. A session created with verification off reports it for
   every failure, and so does any session that fails after its handshake.
+
+  A clean peer closure (`SSL_ERROR_ZERO_RETURN`) is not an error — it
+  produces `SSLClosed` instead.
   """
 
 primitive SSLDisposed
@@ -144,12 +162,14 @@ primitive SSLDisposed
   """
 
 type SSLState is
-  (SSLHandshake | SSLAuthFail | SSLReady | SSLError | SSLDisposed)
+  (SSLHandshake | SSLAuthFail | SSLReady | SSLClosed | SSLError | SSLDisposed)
   """
   The state of an SSL session. A session starts in `SSLHandshake` and reaches
   `SSLReady`, `SSLAuthFail`, or `SSLError` from there. A ready session can
-  still fail into `SSLError` later. Disposing a session puts it in
-  `SSLDisposed` from any state, and it stays there.
+  reach `SSLClosed` via `close` or by receiving the peer's `close_notify`, and
+  can still fail into `SSLError` from either `SSLReady` or `SSLClosed`.
+  Disposing a session puts it in `SSLDisposed` from any state, and it stays
+  there.
   """
 
 class SSL
@@ -168,6 +188,7 @@ class SSL
   var _input: Pointer[_BIO] tag = Pointer[_BIO]
   var _output: Pointer[_BIO] tag = Pointer[_BIO]
   var _state: SSLState = SSLHandshake
+  var _close_notify_sent: Bool = false
   var _read_buf: Array[U8] iso = []
 
   new _create(
@@ -253,12 +274,56 @@ class SSL
     """
     _state
 
+  fun ref close() =>
+    """
+    Send `close_notify` to the peer, initiating an orderly TLS shutdown.
+    After calling this, pump `can_send`/`send` to deliver the encrypted
+    `close_notify` bytes to the transport.
+
+    The session enters `SSLClosed`. New `write` calls raise an error, but
+    `receive` and `read` keep working so the peer's remaining data and
+    `close_notify` response can still arrive.
+
+    Does nothing when the session is not in `SSLReady` or `SSLClosed`, or
+    when `close_notify` has already been sent. A session that received the
+    peer's `close_notify` (state is `SSLClosed` from a prior `read`) can
+    call this to send its own `close_notify` in response.
+
+    A consumer performing a graceful socket close should finish its queued
+    writes (via `write`) before calling `close`, then pump `can_send`/`send`
+    to deliver the `close_notify`, and call `dispose` when done. A hard
+    close skips `close` and calls `dispose` directly.
+    """
+    if _ssl.is_null() then return end
+    if _close_notify_sent then return end
+    if (_state isnt SSLReady) and (_state isnt SSLClosed) then return end
+
+    @ERR_clear_error()
+    let r = @SSL_shutdown(_ssl)
+    if r < 0 then
+      let err = @SSL_get_error(_ssl, r)
+      if (err == _SSLErrorCode.ssl()) or (err == _SSLErrorCode.syscall()) then
+        _state = SSLError
+        return
+      else
+        _Unreachable()
+      end
+    end
+    _close_notify_sent = true
+    _state = SSLClosed
+
   fun ref read(expect: USize = 0): (Array[U8] iso^ | None) =>
     """
     Returns unencrypted bytes to be passed to the application. If `expect` is
     non-zero, this returns `None` until at least `expect` bytes are available,
     then returns everything it holds, which is at least `expect`. Returns
     `None` when the session has been disposed or is in `SSLAuthFail`.
+
+    When the peer sends `close_notify`, the session transitions to `SSLClosed`.
+    If `expect`-mode has accumulated partial data in the internal buffer, that
+    data is returned before the transition — the caller gets the data first,
+    then `None` on the next call with the state at `SSLClosed`. Keeps working
+    in `SSLClosed` so the peer's remaining data can still be read.
     """
     if _ssl.is_null() then return None end
     if _state is SSLAuthFail then return None end
@@ -293,9 +358,14 @@ class SSL
     if r <= 0 then
       match @SSL_get_error(_ssl, r)
       | _SSLErrorCode.ssl()
-      | _SSLErrorCode.syscall()
-      | _SSLErrorCode.zero_return() =>
+      | _SSLErrorCode.syscall() =>
         _state = SSLError
+        return None
+      | _SSLErrorCode.zero_return() =>
+        _state = SSLClosed
+        if _read_buf.size() > 0 then
+          return _read_buf = []
+        end
         return None
       | _SSLErrorCode.want_read() =>
         return None
@@ -338,8 +408,9 @@ class SSL
   fun ref write(data: ByteSeq) ? =>
     """
     When application data is sent, add it to the SSL session. Does nothing if
-    the session has been disposed. Raises an error if the handshake is not
-    complete or if `SSL_write` does not encrypt the data.
+    the session has been disposed. Raises an error if the session is not in
+    `SSLReady` — including `SSLClosed`, `SSLHandshake`, `SSLAuthFail`, and
+    `SSLError` — or if `SSL_write` does not encrypt the data.
     """
     if _ssl.is_null() then return end
     if _state isnt SSLReady then error end
@@ -355,9 +426,10 @@ class SSL
         if r <= 0 then
           match @SSL_get_error(_ssl, r)
           | _SSLErrorCode.ssl()
-          | _SSLErrorCode.syscall()
-          | _SSLErrorCode.zero_return() =>
+          | _SSLErrorCode.syscall() =>
             _state = SSLError
+          | _SSLErrorCode.zero_return() =>
+            _state = SSLClosed
           | _SSLErrorCode.want_read() =>
             None
           else
@@ -372,7 +444,9 @@ class SSL
   fun ref receive(data: ByteSeq) =>
     """
     When data is received, add it to the SSL session. Does nothing when the
-    session has been disposed or is in `SSLAuthFail` or `SSLError`.
+    session has been disposed or is in `SSLAuthFail` or `SSLError`. Keeps
+    working in `SSLClosed` so the peer's remaining data and `close_notify`
+    response can still enter the session.
     """
     if _ssl.is_null() then return end
     if (_state is SSLAuthFail) or (_state is SSLError) then return end
