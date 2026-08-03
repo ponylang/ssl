@@ -11,6 +11,11 @@ class SSLConnection is TCPConnectionNotify
   nothing at all when the session is in `SSLError`. The connection closes on
   either failure. `SSLAuthFail` and `SSLError` each list the failures they
   cover.
+
+  When the peer sends `close_notify` or the TCP connection closes, `close` is
+  called on the SSL session to send a `close_notify` response, and any
+  remaining encrypted bytes are flushed to the transport before the TCP
+  connection closes.
   """
   let _notify: TCPConnectionNotify
   let _ssl: SSL
@@ -122,6 +127,10 @@ class SSLConnection is TCPConnectionNotify
     """
     _closed = true
 
+    if _ssl.state() is SSLReady then
+      _ssl.close()
+    end
+
     _poll(conn)
     _ssl.dispose()
 
@@ -179,6 +188,8 @@ class SSLConnection is TCPConnectionNotify
       end
 
       return true
+    | SSLClosed =>
+      return _do_shutdown(conn)
     | SSLError =>
       if not _closed then
         conn.close()
@@ -216,6 +227,16 @@ class SSLConnection is TCPConnectionNotify
       end
     end
 
+    match _ssl.state()
+    | SSLClosed =>
+      return _do_shutdown(conn)
+    | SSLError =>
+      if not _closed then
+        conn.close()
+      end
+      return true
+    end
+
     try
       while _ssl.can_send() do
         conn.write_final(_ssl.send()?)
@@ -223,3 +244,15 @@ class SSLConnection is TCPConnectionNotify
     end
 
     continue_reading
+
+  fun ref _do_shutdown(conn: TCPConnection ref): Bool =>
+    _ssl.close()
+    try
+      while _ssl.can_send() do
+        conn.write_final(_ssl.send()?)
+      end
+    end
+    if not _closed then
+      conn.close()
+    end
+    true

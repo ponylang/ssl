@@ -9,8 +9,11 @@ All notable changes to this project will be documented in this file. This projec
 
 ### Added
 
+- Add SSL.close() and SSLClosed for orderly TLS shutdown ([PR #148](https://github.com/ponylang/ssl/pull/148))
 
 ### Changed
+
+- SSL_ERROR_ZERO_RETURN now produces SSLClosed instead of SSLError ([PR #148](https://github.com/ponylang/ssl/pull/148))
 
 
 ## [3.0.1] - 2026-08-02
