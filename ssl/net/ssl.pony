@@ -102,76 +102,6 @@ primitive _ERRReason
 
   fun peer_did_not_return_a_certificate(): ULong => 199
 
-primitive SSLHandshake
-  """
-  The session is still handshaking.
-  """
-
-primitive SSLAuthFail
-  """
-  The session required a certificate from its peer and did not get an
-  acceptable one. The chain did not verify, the certificate was not valid for
-  the hostname the session was created with, the peer could not prove it holds
-  the key matching the certificate it presented, or the peer presented no
-  certificate at all.
-
-  A peer whose certificate will not parse reports `SSLError` instead: the
-  failure happens before chain verification, so it is not distinguishable from
-  a failure that had nothing to do with a certificate. A session created with
-  verification off does not reach this state at all, and neither does a
-  session whose only failure was its peer rejecting the certificate the
-  session presented.
-  """
-
-primitive SSLReady
-  """
-  The handshake is complete. Application data can be sent and received.
-  """
-
-primitive SSLClosed
-  """
-  The TLS session closed cleanly. Either the peer sent `close_notify`
-  (detected by `read`) or the consumer called `close`. The write side is
-  shut down: `write` raises an error. The read side stays open: `receive`
-  and `read` keep working so the peer's remaining data and `close_notify`
-  response can still flow in.
-
-  A consumer performing a graceful socket close should finish its queued
-  writes (via `write`) before calling `close`, then pump `can_send`/`send`
-  to deliver the `close_notify`, and call `dispose` when done. A hard
-  close skips `close` and calls `dispose` directly.
-  """
-
-primitive SSLError
-  """
-  The session failed with a protocol error or an I/O error. A session
-  reports this when its peer did not speak TLS, shared no protocol version,
-  rejected the certificate the session presented, or presented one that
-  would not parse. A session created with verification off reports it for
-  every failure, and so does any session that fails after its handshake.
-
-  A clean peer closure (`SSL_ERROR_ZERO_RETURN`) is not an error — it
-  produces `SSLClosed` instead.
-  """
-
-primitive SSLDisposed
-  """
-  The session has been disposed. Nothing more comes out of it: `read` returns
-  `None`, `can_send` returns `false`, `alpn_selected` returns `None`, `receive`
-  and `write` do nothing, and `send` raises an error.
-  """
-
-type SSLState is
-  (SSLHandshake | SSLAuthFail | SSLReady | SSLClosed | SSLError | SSLDisposed)
-  """
-  The state of an SSL session. A session starts in `SSLHandshake` and reaches
-  `SSLReady`, `SSLAuthFail`, or `SSLError` from there. A ready session can
-  reach `SSLClosed` via `close` or by receiving the peer's `close_notify`, and
-  can still fail into `SSLError` from either `SSLReady` or `SSLClosed`.
-  Disposing a session puts it in `SSLDisposed` from any state, and it stays
-  there.
-  """
-
 class SSL
   """
   An SSL session manages handshakes, encryption and decryption. It is not tied
@@ -187,8 +117,7 @@ class SSL
   var _ssl: Pointer[_SSL] = Pointer[_SSL]
   var _input: Pointer[_BIO] tag = Pointer[_BIO]
   var _output: Pointer[_BIO] tag = Pointer[_BIO]
-  var _state: SSLState = SSLHandshake
-  var _close_notify_sent: Bool = false
+  var _state: _SSLSessionState = _Handshaking
   var _read_buf: Array[U8] iso = []
 
   new _create(
@@ -242,92 +171,140 @@ class SSL
       @SSL_set_accept_state(_ssl)
     else
       @SSL_set_connect_state(_ssl)
-      _do_handshake()
+      _kick_handshake()
     end
 
   fun box alpn_selected(): (ALPNProtocolName | None) =>
     """
-    Get the protocol identifier negotiated via ALPN. Returns `None` when the
-    session has been disposed or is in `SSLAuthFail`.
+    The protocol identifier negotiated via ALPN, or `None` when no protocol
+    has been selected.
     """
-    if _ssl.is_null() then return None end
-    if _state is SSLAuthFail then return None end
-
-    var ptr: Pointer[U8] iso = recover Pointer[U8] end
-    var len = U32(0)
-    ifdef
-      "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl"
-    then
-      @SSL_get0_alpn_selected(_ssl, addressof ptr, addressof len)
-    else
-      compile_error "You must select an SSL version to use."
-    end
-
-    if ptr.is_null() then None
-    else
-      recover val String.copy_cpointer(consume ptr, USize.from[U32](len)) end
-    end
+    _state.alpn_selected(this)
 
   fun state(): SSLState =>
     """
     Returns the SSL session state.
     """
-    _state
+    _state.state()
 
   fun ref close() =>
     """
     Send `close_notify` to the peer, initiating an orderly TLS shutdown.
     After calling this, pump `can_send`/`send` to deliver the encrypted
-    `close_notify` bytes to the transport.
+    `close_notify` bytes to the transport. Does nothing when the session
+    is not ready or has already been closed.
 
-    The session enters `SSLClosed`. New `write` calls raise an error, but
-    `receive` and `read` keep working so the peer's remaining data and
-    `close_notify` response can still arrive.
-
-    Does nothing when the session is not in `SSLReady` or `SSLClosed`, or
-    when `close_notify` has already been sent. A session that received the
-    peer's `close_notify` (state is `SSLClosed` from a prior `read`) can
-    call this to send its own `close_notify` in response.
-
-    A consumer performing a graceful socket close should finish its queued
-    writes (via `write`) before calling `close`, then pump `can_send`/`send`
-    to deliver the `close_notify`, and call `dispose` when done. A hard
-    close skips `close` and calls `dispose` directly.
+    A graceful socket close finishes queued writes first, then calls `close`,
+    pumps `can_send`/`send`, and calls `dispose` when done. A hard close
+    skips `close` and calls `dispose` directly.
     """
-    if _ssl.is_null() then return end
-    if _close_notify_sent then return end
-    if (_state isnt SSLReady) and (_state isnt SSLClosed) then return end
+    _state.close(this)
 
+  fun ref read(expect: USize = 0): (Array[U8] iso^ | None) =>
+    """
+    Returns unencrypted bytes to be passed to the application, or `None` when
+    no data is available or the session is no longer usable.
+
+    When `expect` is non-zero, buffers internally until at least `expect`
+    bytes are available, then returns everything it holds.
+    """
+    _state.read(this, expect)
+
+  fun ref write(data: ByteSeq) ? =>
+    """
+    Encrypt application data for sending. Raises an error when the session
+    is not ready for application data or when encryption fails.
+    """
+    _state.write(this, data)?
+
+  fun ref receive(data: ByteSeq) =>
+    """
+    Feed encrypted data from the transport into the session. Does nothing
+    when the session is no longer usable.
+    """
+    _state.receive(this, data)
+
+  fun can_send(): Bool =>
+    """
+    True when there are encrypted bytes to be passed to the destination.
+    """
+    _state.can_send(this)
+
+  fun ref send(): Array[U8] iso^ ? =>
+    """
+    Returns encrypted bytes to be passed to the destination. Raises an error
+    when no data is available.
+    """
+    _state.send(this)?
+
+  fun ref dispose() =>
+    """
+    Dispose of the session.
+    """
+    _state.dispose(this)
+
+  fun _final() =>
+    if not _ssl.is_null() then
+      @SSL_free(_ssl)
+    end
+
+  fun ref _set_state(new_state: _SSLSessionState) =>
+    _state = new_state
+
+  fun ref _drain_read_buf(expect: USize): (Array[U8] iso^ | None) =>
+    """
+    Return buffered bytes without calling `SSL_read`. When `expect` is
+    non-zero and enough bytes are buffered, return them all. With `expect`
+    zero, return `None` — a no-expect read only returns data that was
+    freshly decrypted in the same call, and a failed session decrypts
+    nothing.
+    """
+    if (expect > 0) and (_read_buf.size() >= expect) then
+      return _read_buf = []
+    end
+    None
+
+  fun ref _do_receive(data: ByteSeq) =>
+    let total = data.size()
+    if total > 0 then
+      let max_chunk = I32.max_value().usize()
+      var offset: USize = 0
+      while offset < total do
+        let chunk = (total - offset).min(max_chunk)
+        @BIO_write(_input, data.cpointer(offset), chunk.i32())
+        offset = offset + chunk
+      end
+    end
+
+  fun ref _kick_handshake() =>
+    """
+    Run one step of the TLS handshake and transition state accordingly. Shared
+    between the constructor (client path) and `_Handshaking.receive`.
+    """
     @ERR_clear_error()
-    let r = @SSL_shutdown(_ssl)
-    if r < 0 then
-      let err = @SSL_get_error(_ssl, r)
-      if (err == _SSLErrorCode.ssl()) or (err == _SSLErrorCode.syscall()) then
-        _state = SSLError
-        return
+    let r = @SSL_do_handshake(_ssl)
+
+    if r > 0 then
+      _verify_hostname()
+    else
+      match @SSL_get_error(_ssl, r)
+      | _SSLErrorCode.ssl() | _SSLErrorCode.syscall() =>
+        _state =
+          if _peer_auth_failed() then _AuthFailed else _Errored end
+      | _SSLErrorCode.zero_return() =>
+        _state = _Errored
+      | _SSLErrorCode.want_read() =>
+        None
       else
         _Unreachable()
       end
     end
-    _close_notify_sent = true
-    _state = SSLClosed
 
-  fun ref read(expect: USize = 0): (Array[U8] iso^ | None) =>
+  fun ref _do_read(expect: USize): (Array[U8] iso^ | None) =>
     """
-    Returns unencrypted bytes to be passed to the application. If `expect` is
-    non-zero, this returns `None` until at least `expect` bytes are available,
-    then returns everything it holds, which is at least `expect`. Returns
-    `None` when the session has been disposed or is in `SSLAuthFail`.
-
-    When the peer sends `close_notify`, the session transitions to `SSLClosed`.
-    If `expect`-mode has accumulated partial data in the internal buffer, that
-    data is returned before the transition — the caller gets the data first,
-    then `None` on the next call with the state at `SSLClosed`. Keeps working
-    in `SSLClosed` so the peer's remaining data can still be read.
+    `SSL_read` with expect-mode buffering and `SSL_pending` retry. Sets state
+    to `_Closing` on `zero_return` and to `_Errored` on fatal error.
     """
-    if _ssl.is_null() then return None end
-    if _state is SSLAuthFail then return None end
-
     let offset = _read_buf.size()
 
     var len =
@@ -359,10 +336,10 @@ class SSL
       match @SSL_get_error(_ssl, r)
       | _SSLErrorCode.ssl()
       | _SSLErrorCode.syscall() =>
-        _state = SSLError
+        _state = _Errored
         return None
       | _SSLErrorCode.zero_return() =>
-        _state = SSLClosed
+        _state = _Closing
         if _read_buf.size() > 0 then
           return _read_buf = []
         end
@@ -385,36 +362,29 @@ class SSL
     if ready then
       _read_buf = []
     else
-      // try and read again any pending data that SSL hasn't decoded yet
       ifdef "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" then
         if @BIO_ctrl_pending(_input) > 0 then
-          read(expect)
+          _do_read(expect)
         elseif @SSL_has_pending(_ssl) == 1 then
           // SSL has buffered data that BIO_ctrl_pending cannot see.
           // pony-lint: allow style/line-length
           // https://mta.openssl.org/pipermail/openssl-users/2017-January/005110.html
-          read(expect)
+          _do_read(expect)
         end
       elseif "libressl" then
-        // LibreSSL does not expose SSL_has_pending.
         if @BIO_ctrl_pending(_input) > 0 then
-          read(expect)
+          _do_read(expect)
         end
       else
         compile_error "You must select an SSL version to use."
       end
     end
 
-  fun ref write(data: ByteSeq) ? =>
+  fun ref _do_write(data: ByteSeq) ? =>
     """
-    When application data is sent, add it to the SSL session. Does nothing if
-    the session has been disposed. Raises an error if the session is not in
-    `SSLReady` — including `SSLClosed`, `SSLHandshake`, `SSLAuthFail`, and
-    `SSLError` — or if `SSL_write` does not encrypt the data.
+    `SSL_write` with chunking. Sets state to `_Closing` on `zero_return` and
+    to `_Errored` on fatal error.
     """
-    if _ssl.is_null() then return end
-    if _state isnt SSLReady then error end
-
     let total = data.size()
     if total > 0 then
       let max_chunk = I32.max_value().usize()
@@ -427,9 +397,9 @@ class SSL
           match @SSL_get_error(_ssl, r)
           | _SSLErrorCode.ssl()
           | _SSLErrorCode.syscall() =>
-            _state = SSLError
+            _state = _Errored
           | _SSLErrorCode.zero_return() =>
-            _state = SSLClosed
+            _state = _Closing
           | _SSLErrorCode.want_read() =>
             None
           else
@@ -441,47 +411,28 @@ class SSL
       end
     end
 
-  fun ref receive(data: ByteSeq) =>
+  fun ref _do_close_notify() =>
     """
-    When data is received, add it to the SSL session. Does nothing when the
-    session has been disposed or is in `SSLAuthFail` or `SSLError`. Keeps
-    working in `SSLClosed` so the peer's remaining data and `close_notify`
-    response can still enter the session.
+    Send `close_notify` via `SSL_shutdown`. Transitions to `_Closed` on
+    success, `_Errored` on fatal error.
     """
-    if _ssl.is_null() then return end
-    if (_state is SSLAuthFail) or (_state is SSLError) then return end
-
-    let total = data.size()
-    if total > 0 then
-      let max_chunk = I32.max_value().usize()
-      var offset: USize = 0
-      while offset < total do
-        let chunk = (total - offset).min(max_chunk)
-        @BIO_write(_input, data.cpointer(offset), chunk.i32())
-        offset = offset + chunk
+    @ERR_clear_error()
+    let r = @SSL_shutdown(_ssl)
+    if r < 0 then
+      let err = @SSL_get_error(_ssl, r)
+      if (err == _SSLErrorCode.ssl()) or (err == _SSLErrorCode.syscall()) then
+        _state = _Errored
+        return
+      else
+        _Unreachable()
       end
     end
+    _state = _Closed
 
-    if _state is SSLHandshake then
-      _do_handshake()
-    end
-
-  fun can_send(): Bool =>
-    """
-    Returns true if there are encrypted bytes to be passed to the destination.
-    Returns false if the session has been disposed.
-    """
-    if _ssl.is_null() then return false end
-
+  fun box _do_can_send(): Bool =>
     @BIO_ctrl_pending(_output) > 0
 
-  fun ref send(): Array[U8] iso^ ? =>
-    """
-    Returns encrypted bytes to be passed to the destination. Raises an error
-    if no data is available. A disposed session has no data.
-    """
-    if _ssl.is_null() then error end
-
+  fun ref _do_send(): Array[U8] iso^ ? =>
     let pending = @BIO_ctrl_pending(_output)
     if pending == 0 then error end
 
@@ -492,31 +443,33 @@ class SSL
     buf.truncate(r.usize())
     buf
 
-  fun ref dispose() =>
-    """
-    Dispose of the session. `state` returns `SSLDisposed` afterwards, whatever
-    state the session was in before.
-    """
+  fun box _do_alpn_selected(): (ALPNProtocolName | None) =>
+    var ptr: Pointer[U8] iso = recover Pointer[U8] end
+    var len = U32(0)
+    ifdef
+      "openssl_1.1.x" or "openssl_3.0.x" or "openssl_4.0.x" or "libressl"
+    then
+      @SSL_get0_alpn_selected(_ssl, addressof ptr, addressof len)
+    else
+      compile_error "You must select an SSL version to use."
+    end
+
+    if ptr.is_null() then None
+    else
+      recover val String.copy_cpointer(consume ptr, USize.from[U32](len)) end
+    end
+
+  fun ref _do_dispose() =>
     if not _ssl.is_null() then
       // `_create` handed both BIOs to the session with `SSL_set_bio`, so
-      // `SSL_free` frees all three. Nulling `_ssl` is what keeps the other
-      // methods away from the freed BIOs, because they all check it first.
-      // Null the BIOs as well, so a method that ever forgets that check finds
-      // a null pointer instead of freed memory.
+      // `SSL_free` frees all three. Nulling `_ssl` is what keeps `_final`
+      // from double-freeing. Null the BIOs as well, so any code path that
+      // ever bypasses the state machine finds a null pointer instead of freed
+      // memory.
       @SSL_free(_ssl)
       _ssl = Pointer[_SSL]
       _input = Pointer[_BIO]
       _output = Pointer[_BIO]
-    end
-
-    _state = SSLDisposed
-
-  fun _final() =>
-    """
-    Dispose of the session.
-    """
-    if not _ssl.is_null() then
-      @SSL_free(_ssl)
     end
 
   fun ref _peer_auth_failed(): Bool =>
@@ -586,34 +539,7 @@ class SSL
 
     false
 
-  fun ref _do_handshake() =>
-    """
-    Run one step of the TLS handshake and classify the outcome. Sets `_state`
-    to `SSLReady`, `SSLAuthFail`, or `SSLError` when the handshake settles,
-    and leaves it at `SSLHandshake` when more data is needed.
-    """
-    @ERR_clear_error()
-    let r = @SSL_do_handshake(_ssl)
-
-    if r > 0 then
-      _verify_hostname()
-    else
-      match @SSL_get_error(_ssl, r)
-      | _SSLErrorCode.ssl() | _SSLErrorCode.syscall() =>
-        _state = if _peer_auth_failed() then SSLAuthFail else SSLError end
-      | _SSLErrorCode.zero_return() =>
-        _state = SSLError
-      | _SSLErrorCode.want_read() =>
-        None
-      else
-        _Unreachable()
-      end
-    end
-
   fun ref _verify_hostname() =>
-    """
-    Verify that the certificate is valid for the given hostname.
-    """
     if _verify and (_hostname.size() > 0) then
       let cert =
         ifdef "openssl_3.0.x" or "openssl_4.0.x" then
@@ -630,9 +556,9 @@ class SSL
       end
 
       if not ok then
-        _state = SSLAuthFail
+        _state = _AuthFailed
         return
       end
     end
 
-    _state = SSLReady
+    _state = _Ready

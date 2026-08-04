@@ -4,18 +4,6 @@ use "net"
 class SSLConnection is TCPConnectionNotify
   """
   Wrap another protocol in an SSL connection.
-
-  A finished handshake reaches the wrapped protocol as `connected` on a session
-  that connected out, or `accepted` on one that was connected to. A failed one
-  reaches it as `auth_failed` when the session is in `SSLAuthFail`, and as
-  nothing at all when the session is in `SSLError`. The connection closes on
-  either failure. `SSLAuthFail` and `SSLError` each list the failures they
-  cover.
-
-  When the peer sends `close_notify` or the TCP connection closes, `close` is
-  called on the SSL session to send a `close_notify` response, and any
-  remaining encrypted bytes are flushed to the transport before the TCP
-  connection closes.
   """
   let _notify: TCPConnectionNotify
   let _ssl: SSL

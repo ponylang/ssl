@@ -6,6 +6,7 @@ All notable changes to this project will be documented in this file. This projec
 
 ### Fixed
 
+- Fix alpn_selected() returning a protocol from a failed session ([PR #149](https://github.com/ponylang/ssl/pull/149))
 
 ### Added
 

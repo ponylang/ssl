@@ -41,6 +41,7 @@ actor \nodoc\ Main is TestList
     test(_TestSSLReadPendingExceedsExpect)
     test(_TestSSLReadOnAuthFail)
     test(_TestSSLALPNSelectedOnAuthFail)
+    test(_TestSSLALPNSelectedOnError)
     test(_TestSSLReceiveOnAuthFail)
     test(_TestSSLReceiveOnError)
     test(_TestSSLCloseFromReady)
@@ -52,6 +53,9 @@ actor \nodoc\ Main is TestList
     test(_TestSSLReceiveInClosed)
     test(_TestSSLWriteBlockedInClosed)
     test(_TestSSLBidirectionalCloseRoundtrip)
+    test(_TestSSLCorruptRecordInClosed)
+    test(_TestSSLCanSendOnFailedSession)
+    test(_TestSSLWriteBlockedInClosing)
     test(_TestSSLDisposeBeforeHandshake)
     test(_TestSSLDisposeTwice)
     test(_TestSSLReadAfterDispose)
@@ -2515,6 +2519,82 @@ class \nodoc\ iso _TestSSLALPNSelectedOnAuthFail is UnitTest
     client.dispose()
     server.dispose()
 
+class \nodoc\ iso _TestSSLALPNSelectedOnError is UnitTest
+  """
+  `alpn_selected` on a session in `SSLError` returns `None`, even though
+  the session negotiated a protocol before it failed.
+  """
+  fun name(): String => "net/ssl/SSL.alpn_selected/on_error"
+
+  fun apply(h: TestHelper) =>
+    let auth = FileAuth(h.env.root)
+    let client_ctx =
+      try
+        recover val
+          SSLContext
+            .> set_cert(
+                FilePath(auth, "assets/cert.pem"),
+                FilePath(auth, "assets/key.pem"))?
+            .> set_authority(FilePath(auth, "assets/cert.pem"))?
+            .> alpn_set_client_protocols(["h2"])
+        end
+      else
+        h.fail("client ssl context setup failed")
+        return
+      end
+    let server_ctx =
+      try
+        recover val
+          SSLContext
+            .> set_cert(
+                FilePath(auth, "assets/cert.pem"),
+                FilePath(auth, "assets/key.pem"))?
+            .> set_authority(FilePath(auth, "assets/cert.pem"))?
+            .> alpn_set_resolver(ALPNStandardProtocolResolver(["h2"]))
+        end
+      else
+        h.fail("server ssl context setup failed")
+        return
+      end
+
+    (let client, let server) =
+      try
+        _TestSSLSessionPair.attempt(h, client_ctx, server_ctx)?
+      else
+        h.fail("could not create an SSL session pair")
+        return
+      end
+
+    h.assert_true(
+      client.state() is SSLReady,
+      "the client should be in SSLReady after a successful handshake")
+
+    h.assert_true(
+      try (server.alpn_selected() as String) == "h2" else false end,
+      "the server should have negotiated h2 before the failure")
+
+    try
+      _TestSSLCorruptRecord(client, server, "hello")?
+    else
+      h.fail("could not send a corrupted record")
+      client.dispose()
+      server.dispose()
+      return
+    end
+
+    server.read()
+
+    h.assert_true(
+      server.state() is SSLError,
+      "a corrupted record should put the server in SSLError")
+
+    h.assert_true(
+      server.alpn_selected() is None,
+      "alpn_selected() on an SSLError session should return None")
+
+    client.dispose()
+    server.dispose()
+
 class \nodoc\ iso _TestSSLReceiveOnAuthFail is UnitTest
   """
   `receive` on a session in `SSLAuthFail` does nothing.
@@ -4475,6 +4555,178 @@ class \nodoc\ iso _TestSSLBidirectionalCloseRoundtrip is UnitTest
     h.assert_true(
       server.state() is SSLClosed,
       "server should still be SSLClosed")
+
+    client.dispose()
+    server.dispose()
+
+class \nodoc\ iso _TestSSLCorruptRecordInClosed is UnitTest
+  """
+  A corrupted record received while in `_Closed` transitions to `SSLError`.
+
+  The session has already sent its own `close_notify` and is in `_Closed`.
+  A corrupted record arriving now is a genuine error. `_Closed.read`
+  preserves `_Closed` on a clean `zero_return` but lets `_Errored`
+  through.
+  """
+  fun name(): String => "net/ssl/SSL.read/corrupt_record_in_closed"
+
+  fun apply(h: TestHelper) =>
+    (let client, let server) =
+      try
+        _TestSSLSessionPair(h)?
+      else
+        h.fail("could not establish an SSL session pair")
+        return
+      end
+
+    // Encrypt a record from the server before the close flow starts.
+    // This record belongs to the same TLS session, so corrupting it triggers
+    // a MAC failure the client's session can detect.
+    var saved_record: Array[U8] iso = recover iso Array[U8] end
+    try
+      server.write("payload")?
+      saved_record = server.send()?
+    else
+      h.fail("could not produce a record to corrupt")
+      client.dispose()
+      server.dispose()
+      return
+    end
+
+    // Get the client into _Closed by calling close()
+    client.close()
+
+    h.assert_true(
+      client.state() is SSLClosed,
+      "client should be SSLClosed after close()")
+
+    // Feed the corrupted record — same session, so the MAC failure is real
+    try
+      let last = saved_record.size() - 1
+      saved_record(last)? = saved_record(last)? xor 0xFF
+      client.receive(consume saved_record)
+    else
+      h.fail("could not corrupt the saved record")
+      client.dispose()
+      server.dispose()
+      return
+    end
+
+    client.read()
+
+    h.assert_true(
+      client.state() is SSLError,
+      "a corrupted record in _Closed should transition to SSLError")
+
+    client.dispose()
+    server.dispose()
+
+class \nodoc\ iso _TestSSLCanSendOnFailedSession is UnitTest
+  """
+  `can_send` and `send` work on a failed session, allowing retrieval of
+  alert bytes that OpenSSL queued in the output BIO before the failure.
+
+  A handshake failure from non-TLS input produces an alert. `can_send` returns
+  `true` while those bytes are in the BIO, and `send` retrieves them.
+  """
+  fun name(): String => "net/ssl/SSL.can_send/on_failed_session"
+
+  fun apply(h: TestHelper) =>
+    (let client, let server) =
+      try
+        _TestSSLSessionPair.fresh(h)?
+      else
+        h.fail("could not create a fresh SSL session pair")
+        return
+      end
+
+    // Drive the handshake far enough that the server has state, then corrupt it
+    try
+      _TestSSLTransfer(client, server)?
+      _TestSSLTransfer(server, client)?
+    else
+      h.fail("could not drive initial handshake exchange")
+      client.dispose()
+      server.dispose()
+      return
+    end
+
+    // Feed non-TLS bytes to the server to trigger an error with an alert
+    server.receive("NOT TLS DATA\r\n")
+    server.read()
+
+    h.assert_true(
+      server.state() is SSLError,
+      "server should be in SSLError after receiving non-TLS bytes")
+
+    h.assert_true(
+      server.can_send(),
+      "failed session should have alert bytes to send")
+
+    try
+      let alert = server.send()?
+      h.assert_true(
+        alert.size() > 0,
+        "alert bytes from a failed session should not be empty")
+    else
+      h.fail("send() on a failed session with queued alert raised an error")
+    end
+
+    h.assert_false(
+      server.can_send(),
+      "can_send should be false after sending the alert")
+
+    client.dispose()
+    server.dispose()
+
+class \nodoc\ iso _TestSSLWriteBlockedInClosing is UnitTest
+  """
+  `write` raises an error in `_Closing`.
+
+  The peer has sent `close_notify`, and we have not responded yet. Writing
+  application data is not allowed — the only valid next step is `close` to
+  send our own `close_notify`.
+  """
+  fun name(): String => "net/ssl/SSL.write/blocked_in_closing"
+
+  fun apply(h: TestHelper) =>
+    (let client, let server) =
+      try
+        _TestSSLSessionPair(h)?
+      else
+        h.fail("could not establish an SSL session pair")
+        return
+      end
+
+    // Get server into _Closing: client sends close_notify, server reads it
+    client.close()
+
+    try
+      _TestSSLTransfer(client, server)?
+    else
+      h.fail("could not transfer close_notify")
+      client.dispose()
+      server.dispose()
+      return
+    end
+
+    server.read()
+
+    h.assert_true(
+      server.state() is SSLClosed,
+      "server should report SSLClosed after receiving peer's close_notify")
+
+    let write_succeeded =
+      try
+        server.write("should fail")?
+        true
+      else
+        false
+      end
+
+    h.assert_false(
+      write_succeeded,
+      "write should raise an error in _Closing")
 
     client.dispose()
     server.dispose()
