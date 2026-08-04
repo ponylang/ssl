@@ -28,3 +28,7 @@ match ssl.state()
 | SSLDisposed => // ...
 end
 ```
+
+## Fix alpn_selected() returning a protocol from a failed session
+
+`alpn_selected()` on a failed session returned the protocol that was negotiated before the failure. The session was not usable, but the caller got back a negotiated protocol as if it were.
