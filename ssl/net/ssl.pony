@@ -181,29 +181,24 @@ class SSL
     """
     _state.alpn_selected(this)
 
-  fun state(): SSLState =>
-    """
-    Returns the SSL session state.
-    """
-    _state.state()
-
   fun ref close() =>
     """
     Send `close_notify` to the peer, initiating an orderly TLS shutdown.
-    After calling this, pump `can_send`/`send` to deliver the encrypted
-    `close_notify` bytes to the transport. Does nothing when the session
-    is not ready or has already been closed.
+    After calling this, drain `send` to deliver the encrypted `close_notify`
+    bytes to the transport. Does nothing when the session is not ready or
+    has already been closed.
 
     A graceful socket close finishes queued writes first, then calls `close`,
-    pumps `can_send`/`send`, and calls `dispose` when done. A hard close
-    skips `close` and calls `dispose` directly.
+    drains `send`, and calls `dispose` when done. A hard close skips `close`
+    and calls `dispose` directly.
     """
     _state.close(this)
 
-  fun ref read(expect: USize = 0): (Array[U8] iso^ | None) =>
+  fun ref read(expect: USize = 0): SSLReadResult =>
     """
-    Returns unencrypted bytes to be passed to the application, or `None` when
-    no data is available or the session is no longer usable.
+    Returns unencrypted bytes to be passed to the application, `None` when
+    no data is available yet, `SSLClosed` when the peer sent `close_notify`,
+    or `SSLError` on a protocol or I/O error.
 
     When `expect` is non-zero, buffers internally until at least `expect`
     bytes are available, then returns everything it holds.
@@ -217,25 +212,23 @@ class SSL
     """
     _state.write(this, data)?
 
-  fun ref receive(data: ByteSeq) =>
+  fun ref receive(data: ByteSeq): SSLReceiveResult =>
     """
-    Feed encrypted data from the transport into the session. Does nothing
-    when the session is no longer usable.
+    Feed encrypted data from the transport into the session.
+
+    Returns what happened: `SSLAccepted` when data was accepted with nothing
+    else to report, `SSLReady` when the handshake completed, `SSLAuthFail`
+    when the peer's certificate was rejected, `SSLError` on failure, or
+    `InvalidOperation` when the session is no longer operational.
     """
     _state.receive(this, data)
 
-  fun can_send(): Bool =>
+  fun ref send(): (Array[U8] iso^ | None) =>
     """
-    True when there are encrypted bytes to be passed to the destination.
+    Returns encrypted bytes to be passed to the destination, or `None` when
+    there is nothing to send.
     """
-    _state.can_send(this)
-
-  fun ref send(): Array[U8] iso^ ? =>
-    """
-    Returns encrypted bytes to be passed to the destination. Raises an error
-    when no data is available.
-    """
-    _state.send(this)?
+    _state.send(this)
 
   fun ref dispose() =>
     """
@@ -276,7 +269,7 @@ class SSL
       end
     end
 
-  fun ref _kick_handshake() =>
+  fun ref _kick_handshake(): SSLReceiveResult =>
     """
     Run one step of the TLS handshake and transition state accordingly. Shared
     between the constructor (client path) and `_Handshaking.receive`.
@@ -289,18 +282,25 @@ class SSL
     else
       match @SSL_get_error(_ssl, r)
       | _SSLErrorCode.ssl() | _SSLErrorCode.syscall() =>
-        _state =
-          if _peer_auth_failed() then _AuthFailed else _Errored end
+        if _peer_auth_failed() then
+          _state = _AuthFailed
+          SSLAuthFail
+        else
+          _state = _Errored
+          SSLError
+        end
       | _SSLErrorCode.zero_return() =>
         _state = _Errored
+        SSLError
       | _SSLErrorCode.want_read() =>
-        None
+        SSLAccepted
       else
         _Unreachable()
+        SSLError
       end
     end
 
-  fun ref _do_read(expect: USize): (Array[U8] iso^ | None) =>
+  fun ref _do_read(expect: USize): SSLReadResult =>
     """
     `SSL_read` with expect-mode buffering and `SSL_pending` retry. Sets state
     to `_Closing` on `zero_return` and to `_Errored` on fatal error.
@@ -337,13 +337,13 @@ class SSL
       | _SSLErrorCode.ssl()
       | _SSLErrorCode.syscall() =>
         _state = _Errored
-        return None
+        return SSLError
       | _SSLErrorCode.zero_return() =>
         _state = _Closing
         if _read_buf.size() > 0 then
           return _read_buf = []
         end
-        return None
+        return SSLClosed
       | _SSLErrorCode.want_read() =>
         return None
       else
@@ -429,17 +429,14 @@ class SSL
     end
     _state = _Closed
 
-  fun box _do_can_send(): Bool =>
-    @BIO_ctrl_pending(_output) > 0
-
-  fun ref _do_send(): Array[U8] iso^ ? =>
+  fun ref _do_send(): (Array[U8] iso^ | None) =>
     let pending = @BIO_ctrl_pending(_output)
-    if pending == 0 then error end
+    if pending == 0 then return None end
 
     let len = pending.min(I32.max_value().usize())
     let buf = recover Array[U8] .> undefined(len) end
     let r = @BIO_read(_output, buf.cpointer(), len.i32())
-    if r <= 0 then error end
+    if r <= 0 then return None end
     buf.truncate(r.usize())
     buf
 
@@ -539,7 +536,7 @@ class SSL
 
     false
 
-  fun ref _verify_hostname() =>
+  fun ref _verify_hostname(): SSLReceiveResult =>
     if _verify and (_hostname.size() > 0) then
       let cert =
         ifdef "openssl_3.0.x" or "openssl_4.0.x" then
@@ -557,8 +554,15 @@ class SSL
 
       if not ok then
         _state = _AuthFailed
-        return
+        return SSLAuthFail
       end
     end
 
     _state = _Ready
+    SSLReady
+
+  fun ref _restore_closed_unless_errored(closed: _Closed) =>
+    match _state
+    | let _: _Errored => None
+    else _state = closed
+    end

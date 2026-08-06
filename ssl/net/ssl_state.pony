@@ -1,6 +1,6 @@
-primitive SSLHandshake
+primitive SSLAccepted
   """
-  The session is still handshaking.
+  The session accepted the data. Nothing else to report.
   """
 
 primitive SSLAuthFail
@@ -15,7 +15,7 @@ primitive SSLReady
 
 primitive SSLClosed
   """
-  The TLS session closed cleanly.
+  The peer sent `close_notify`.
   """
 
 primitive SSLError
@@ -23,13 +23,20 @@ primitive SSLError
   The session failed with a protocol error or an I/O error.
   """
 
-primitive SSLDisposed
+primitive InvalidOperation
   """
-  The session has been disposed. Nothing more comes out of it.
+  The operation has no meaning in the session's current state.
   """
 
-type SSLState is
-  (SSLHandshake | SSLAuthFail | SSLReady | SSLClosed | SSLError | SSLDisposed)
+type SSLReceiveResult is
+  (SSLAccepted | SSLReady | SSLAuthFail | SSLError | InvalidOperation)
   """
-  The state of an SSL session.
+  What happened when encrypted data was fed into the session via `receive`.
+  """
+
+type SSLReadResult is
+  (Array[U8] iso^ | None | SSLClosed | SSLError | InvalidOperation)
+  """
+  What `read` produced: decrypted application data, nothing yet, a clean
+  close from the peer, or an error.
   """
