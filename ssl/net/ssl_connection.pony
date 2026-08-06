@@ -26,7 +26,7 @@ class SSLConnection is TCPConnectionNotify
     Swallow this event until the handshake is complete.
     """
     _accept_pending = true
-    _poll(conn)
+    _drain_sends(conn)
 
   fun ref connecting(conn: TCPConnection ref, count: U32) =>
     """
@@ -38,7 +38,7 @@ class SSLConnection is TCPConnectionNotify
     """
     Swallow this event until the handshake is complete.
     """
-    _poll(conn)
+    _drain_sends(conn)
 
   fun ref connect_failed(conn: TCPConnection ref) =>
     """
@@ -62,14 +62,14 @@ class SSLConnection is TCPConnectionNotify
       _pending.push(notified)
     end
 
-    _poll(conn)
+    _read_and_send(conn)
     ""
 
   fun ref sentv(conn: TCPConnection ref, data: ByteSeqIter): ByteSeqIter =>
     """
     Pass each sequence to the SSL session and check for both new application
     data and new destination data. Returns an empty sequence: what leaves the
-    connection is the ciphertext `_poll` writes, not these bytes.
+    connection is the ciphertext `_read_and_send` writes, not these bytes.
     """
     let ret = recover val Array[ByteSeq] end
     let data' = _notify.sentv(conn, data)
@@ -85,7 +85,7 @@ class SSLConnection is TCPConnectionNotify
       end
     end
 
-    _poll(conn)
+    _read_and_send(conn)
     ret
 
   fun ref received(
@@ -98,52 +98,7 @@ class SSLConnection is TCPConnectionNotify
     Pass the data to the SSL session and check for both new application data
     and new destination data.
     """
-    _ssl.receive(consume data)
-    _poll(conn)
-
-  fun ref expect(conn: TCPConnection ref, qty: USize): USize =>
-    """
-    Keep track of the expect count for the wrapped protocol. Always tell the
-    TCPConnection to read all available data.
-    """
-    _expect = _notify.expect(conn, qty)
-    0
-
-  fun ref closed(conn: TCPConnection ref) =>
-    """
-    Forward to the wrapped protocol.
-    """
-    _closed = true
-
-    if _ssl.state() is SSLReady then
-      _ssl.close()
-    end
-
-    _poll(conn)
-    _ssl.dispose()
-
-    _connected = false
-    _pending.clear()
-    _notify.closed(conn)
-
-  fun ref throttled(conn: TCPConnection ref) =>
-    """
-    Forward to the wrapped protocol.
-    """
-    _notify.throttled(conn)
-
-  fun ref unthrottled(conn: TCPConnection ref) =>
-    """
-    Forward to the wrapped protocol.
-    """
-    _notify.unthrottled(conn)
-
-  fun ref _poll(conn: TCPConnection ref): Bool =>
-    """
-    Checks for both new application data and new destination data. Informs the
-    wrapped protocol that is has connected when the handshake is complete.
-    """
-    match _ssl.state()
+    match \exhaustive\ _ssl.receive(consume data)
     | SSLReady =>
       if not _connected then
         _connected = true
@@ -176,70 +131,93 @@ class SSLConnection is TCPConnectionNotify
       end
 
       return true
-    | SSLClosed =>
-      return _do_shutdown(conn)
     | SSLError =>
       if not _closed then
         conn.close()
       end
 
       return true
-    | SSLDisposed =>
-      // `closed` disposes the session after its last `_poll`, so this arm is
-      // not reached while the connection is open. Once the session is gone
-      // there is nothing to read and nothing to send.
-      return false
+    | SSLAccepted => None
+    | InvalidOperation =>
+      if not _closed then
+        conn.close()
+      end
+
+      return true
     end
 
+    _read_and_send(conn)
+
+  fun ref expect(conn: TCPConnection ref, qty: USize): USize =>
+    """
+    Keep track of the expect count for the wrapped protocol. Always tell the
+    TCPConnection to read all available data.
+    """
+    _expect = _notify.expect(conn, qty)
+    0
+
+  fun ref closed(conn: TCPConnection ref) =>
+    """
+    Forward to the wrapped protocol.
+    """
+    _closed = true
+    _ssl.close()
+    _drain_sends(conn)
+    _ssl.dispose()
+
+    _connected = false
+    _pending.clear()
+    _notify.closed(conn)
+
+  fun ref throttled(conn: TCPConnection ref) =>
+    """
+    Forward to the wrapped protocol.
+    """
+    _notify.throttled(conn)
+
+  fun ref unthrottled(conn: TCPConnection ref) =>
+    """
+    Forward to the wrapped protocol.
+    """
+    _notify.unthrottled(conn)
+
+  fun ref _read_and_send(conn: TCPConnection ref): Bool =>
     var continue_reading: Bool = true
+    var received_called: USize = 0
 
-    try
-      var received_called: USize = 0
-
-      while true do
-        let r = _ssl.read(_expect)
-
-        if r isnt None then
-          received_called = received_called + 1
-          if not _notify.received(
-            conn,
-            (consume r) as Array[U8] iso^,
-            received_called)
-          then
-            continue_reading = false
-            break
-          end
-        else
+    while true do
+      match \exhaustive\ _ssl.read(_expect)
+      | let r: Array[U8] iso =>
+        received_called = received_called + 1
+        if not _notify.received(conn, consume r, received_called) then
+          continue_reading = false
           break
         end
+      | None => break
+      | SSLClosed => return _do_shutdown(conn)
+      | SSLError | InvalidOperation =>
+        if not _closed then
+          conn.close()
+        end
+        return true
       end
     end
 
-    match _ssl.state()
-    | SSLClosed =>
-      return _do_shutdown(conn)
-    | SSLError =>
-      if not _closed then
-        conn.close()
-      end
-      return true
-    end
-
-    try
-      while _ssl.can_send() do
-        conn.write_final(_ssl.send()?)
-      end
-    end
-
+    _drain_sends(conn)
     continue_reading
+
+  fun ref _drain_sends(conn: TCPConnection ref) =>
+    while true do
+      match \exhaustive\ _ssl.send()
+      | let data: Array[U8] iso =>
+        conn.write_final(consume data)
+      | None => break
+      end
+    end
 
   fun ref _do_shutdown(conn: TCPConnection ref): Bool =>
     _ssl.close()
-    try
-      while _ssl.can_send() do
-        conn.write_final(_ssl.send()?)
-      end
-    end
+    _drain_sends(conn)
     if not _closed then
       conn.close()
     end

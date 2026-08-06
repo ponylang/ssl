@@ -2,30 +2,68 @@
 
 `SSL.close()` sends a TLS `close_notify` alert so the peer sees a clean end of session instead of a protocol error. `SSLClosed` is the new state for a cleanly closed session.
 
-## SSL_ERROR_ZERO_RETURN now produces SSLClosed instead of SSLError
+## Replace state polling with return values from receive, read, and send
 
-A clean peer closure was previously reported as `SSLError`. It now produces `SSLClosed`, letting you distinguish a normal end of session from a real failure.
+`state()`, `can_send()`, `SSLState`, `SSLHandshake`, and `SSLDisposed` are removed. The return values of `receive()`, `read()`, and `send()` carry the outcome of each operation. `InvalidOperation` signals a call on a session that is no longer operational (disposed).
 
-This is a breaking change. `SSLClosed` is a new member of the `SSLState` union, so any `\exhaustive\` match on `SSLState` must add a case for it:
+`receive(data)` returns `SSLReceiveResult`:
 
 ```pony
 // Before
+ssl.receive(data)
 match ssl.state()
 | SSLHandshake => // ...
-| SSLAuthFail => // ...
 | SSLReady => // ...
+| SSLAuthFail => // ...
 | SSLError => // ...
 | SSLDisposed => // ...
 end
 
 // After
-match ssl.state()
-| SSLHandshake => // ...
-| SSLAuthFail => // ...
+match ssl.receive(data)
+| SSLAccepted => None
 | SSLReady => // ...
+| SSLAuthFail => // ...
+| SSLError => // ...
+| InvalidOperation => // ...
+end
+```
+
+`read()` returns `SSLReadResult`. A clean peer closure is now `SSLClosed`; a protocol error is `SSLError`. Previously both returned `None`, and the caller had to check `state()` to distinguish them:
+
+```pony
+// Before
+match ssl.read()
+| let data: Array[U8] iso => // ...
+| None => // ...
+end
+
+// After
+match ssl.read()
+| let data: Array[U8] iso => // ...
+| None => // ...
 | SSLClosed => // ...
 | SSLError => // ...
-| SSLDisposed => // ...
+| InvalidOperation => // ...
+end
+```
+
+`send()` returns `(Array[U8] iso^ | None)` and no longer raises:
+
+```pony
+// Before
+while ssl.can_send() do
+  let data = ssl.send()?
+  conn.write(consume data)
+end
+
+// After
+while true do
+  match ssl.send()
+  | let data: Array[U8] iso =>
+    conn.write(consume data)
+  | None => break
+  end
 end
 ```
 

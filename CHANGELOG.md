@@ -14,7 +14,7 @@ All notable changes to this project will be documented in this file. This projec
 
 ### Changed
 
-- SSL_ERROR_ZERO_RETURN now produces SSLClosed instead of SSLError ([PR #148](https://github.com/ponylang/ssl/pull/148))
+- Replace state polling with return values from receive, read, and send ([PR #152](https://github.com/ponylang/ssl/pull/152))
 
 
 ## [3.0.1] - 2026-08-02

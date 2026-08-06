@@ -54,15 +54,14 @@ actor \nodoc\ Main is TestList
     test(_TestSSLWriteBlockedInClosed)
     test(_TestSSLBidirectionalCloseRoundtrip)
     test(_TestSSLCorruptRecordInClosed)
-    test(_TestSSLCanSendOnFailedSession)
+    test(_TestSSLSendOnFailedSession)
     test(_TestSSLWriteBlockedInClosing)
     test(_TestSSLDisposeBeforeHandshake)
     test(_TestSSLDisposeTwice)
     test(_TestSSLReadAfterDispose)
     test(_TestSSLReadAfterDisposeWithBufferedFrame)
     test(_TestSSLReceiveAfterDispose)
-    test(_TestSSLCanSendAfterDispose)
-    test(_TestSSLSendAfterDispose)
+    test(_TestSSLSendAfterDisposeReturnsNone)
     test(_TestSSLWriteAfterDispose)
     test(_TestSSLALPNSelectedAfterDispose)
     test(_TestSSLContextDisposeTwice)
@@ -81,7 +80,7 @@ actor \nodoc\ Main is TestList
     test(_TestSSLContextGetMaxProtoVersionAfterDispose)
     test(_TestSSLContextGetMinProtoVersionOnValReceiver)
     test(_TestSSLContextGetMaxProtoVersionOnValReceiver)
-    test(_TestSSLCanSendOnValReceiver)
+
     test(_TestSSLContextSetAuthorityRootCertsAfterDispose)
     test(_TestSSLContextSetAuthorityAfterDispose)
     test(_TestSSLContextSetCertAfterDispose)
@@ -718,14 +717,13 @@ class \nodoc\ _TestTCPSSLPeerCertificateHostnameMismatchServerNotify
 
 class \nodoc\ iso _TestTCPSSLAuthFailCalledOnce is UnitTest
   """
-  `auth_failed` is called once per failure, not once per `_poll` that reaches
-  `SSLAuthFail`. The second `_poll` comes from `closed`, which calls `_poll`
-  before `_ssl.dispose()`, so the session is still in `SSLAuthFail` at that
-  point.
+  `auth_failed` is called once per failure. The TCP layer can deliver multiple
+  chunks before the connection closes, and each `received` call returns
+  `SSLAuthFail` from the session. `SSLConnection` guards against calling
+  `auth_failed` a second time.
 
-  Holding completion until `closed` is what makes this test sensitive to the
-  double call. A test that completes on `auth_failed` finishes before `closed`
-  fires its `_poll`.
+  The test completes in `closed`, not in `auth_failed`, because `closed` fires
+  after all `received` calls and exposes a second `auth_failed` call.
   """
   fun name(): String => "net/TCPSSL.auth_failed_called_once"
   fun exclusion_group(): String => "network"
@@ -1312,14 +1310,20 @@ primitive \nodoc\ _TestSSLDefaultSessions
     (consume ssl_client, consume ssl_server)
 
 primitive \nodoc\ _TestSSLTransfer
-  fun val apply(sender: SSL, receiver: SSL) ? =>
+  fun val apply(sender: SSL, receiver: SSL): SSLReceiveResult =>
     """
-    Hand every encrypted byte the sender has ready over to the receiver, the
-    way a transport would.
+    Hand every encrypted byte the sender has ready to the receiver. Returns
+    `SSLAccepted` when the sender had nothing to send.
     """
-    while sender.can_send() do
-      receiver.receive(sender.send()?)
+    var result: SSLReceiveResult = SSLAccepted
+    while true do
+      match \exhaustive\ sender.send()
+      | let data: Array[U8] iso =>
+        result = receiver.receive(consume data)
+      | None => break
+      end
     end
+    result
 
 primitive \nodoc\ _TestSSLCorruptRecord
   fun val apply(sender: SSL, receiver: SSL, payload: ByteSeq) ? =>
@@ -1329,14 +1333,18 @@ primitive \nodoc\ _TestSSLCorruptRecord
     of the record that byte belongs to.
     """
     sender.write(payload)?
-    var record = sender.send()?
+    var record =
+      match \exhaustive\ sender.send()
+      | let data: Array[U8] iso => consume data
+      | None => error
+      end
     let last = record.size() - 1
     record(last)? = record(last)? xor 0xFF
     receiver.receive(consume record)
     // `send` returns one buffer, and a payload large enough to span records
     // leaves the rest queued. Hand those over too, so the receiver gets
     // everything the sender wrote.
-    _TestSSLTransfer(sender, receiver)?
+    _TestSSLTransfer(sender, receiver)
 
 primitive \nodoc\ _TestSSLContext
   fun val apply(
@@ -1395,7 +1403,7 @@ primitive \nodoc\ _TestSSLSessionPair
   fun val fresh(h: TestHelper): (SSL, SSL) ? =>
     """
     A client and a server session from the standard test context, before any
-    handshake. Both are in `SSLHandshake`.
+    handshake.
     """
     (let client_session, let server_session) = _TestSSLDefaultSessions(h)?
     let client: SSL = consume client_session
@@ -1433,7 +1441,7 @@ primitive \nodoc\ _TestSSLSessionPair
   =>
     """
     A client session from `client_ctx` and a server session from `server_ctx`,
-    before any handshake. Both are in `SSLHandshake`.
+    before any handshake.
     """
     let client: SSL =
       try
@@ -1457,41 +1465,46 @@ primitive \nodoc\ _TestSSLSessionPair
     client_ctx: SSLContext val,
     server_ctx: SSLContext val,
     hostname: String = "")
-    : (SSL, SSL) ?
+    : (SSL, SSL, SSLReceiveResult, SSLReceiveResult) ?
   =>
     """
     A client session from `client_ctx` and a server session from `server_ctx`,
     handed each other's bytes until neither is still handshaking or the round
     cap stops it. A handshake that does not complete is a result to assert on
     rather than a reason to fail the test, which is what separates this from
-    `apply`. Assert on the state you expect; a session left in `SSLHandshake`
-    fails that assertion.
+    `apply`. `SSLAccepted` means the session did not finish handshaking.
     """
     (let client, let server) = _fresh_from(h, client_ctx, server_ctx, hostname)?
-    _pump(client, server)?
-    (client, server)
+    (let cr, let sr) = _pump(client, server)
+    (client, server, cr, sr)
 
-  fun val _pump(client: SSL, server: SSL): USize ? =>
+  fun val _pump(
+    client: SSL,
+    server: SSL)
+    : (SSLReceiveResult, SSLReceiveResult)
+  =>
     """
     Hand each side's outgoing bytes to the other until neither is still
-    handshaking, and return how many rounds that took. Stops at `_max_rounds`
-    whether or not the sessions settled, so a caller that needs them settled
-    has to check.
+    handshaking, and return each side's `receive` result. Stops at
+    `_max_rounds` whether or not the sessions settled, so a caller that needs
+    them settled has to check.
     """
     var rounds: USize = 0
+    var client_result: SSLReceiveResult = SSLAccepted
+    var server_result: SSLReceiveResult = SSLAccepted
 
     while
-      ((client.state() is SSLHandshake) or (server.state() is SSLHandshake))
+      ((client_result is SSLAccepted) or (server_result is SSLAccepted))
         and (rounds < _max_rounds())
     do
       rounds = rounds + 1
-      // Both directions run every round, so a side that has already failed
-      // still hands its alert to the other.
-      _TestSSLTransfer(client, server)?
-      _TestSSLTransfer(server, client)?
+      let sr = _TestSSLTransfer(client, server)
+      let cr = _TestSSLTransfer(server, client)
+      if not (sr is SSLAccepted) then server_result = sr end
+      if not (cr is SSLAccepted) then client_result = cr end
     end
 
-    rounds
+    (client_result, server_result)
 
   fun val _max_rounds(): USize =>
     """
@@ -1507,16 +1520,14 @@ primitive \nodoc\ _TestSSLSessionPair
     straight to the other. Reports the reason and raises an error if the
     handshake does not finish.
     """
-    let rounds = _pump(client, server)?
+    (let cr, let sr) = _pump(client, server)
 
-    if (client.state() is SSLHandshake) or (server.state() is SSLHandshake) then
-      h.fail(
-        "in memory SSL handshake did not finish in " + rounds.string()
-          + " rounds")
+    if (cr is SSLAccepted) or (sr is SSLAccepted) then
+      h.fail("in memory SSL handshake did not finish")
       error
     end
 
-    if (client.state() isnt SSLReady) or (server.state() isnt SSLReady) then
+    if (cr isnt SSLReady) or (sr isnt SSLReady) then
       h.fail("in memory SSL handshake did not reach SSLReady")
       error
     end
@@ -1543,12 +1554,9 @@ class \nodoc\ iso _TestSSLHandshakeInMemory is UnitTest
         return
       end
 
-    h.assert_true(client.state() is SSLReady, "client is not SSLReady")
-    h.assert_true(server.state() is SSLReady, "server is not SSLReady")
-
     try
       client.write("hello")?
-      _TestSSLTransfer(client, server)?
+      _TestSSLTransfer(client, server)
     else
       h.fail("client could not send application data")
       client.dispose()
@@ -1559,8 +1567,10 @@ class \nodoc\ iso _TestSSLHandshakeInMemory is UnitTest
     match \exhaustive\ server.read()
     | let data: Array[U8] iso =>
       h.assert_eq[String]("hello", String.from_array(consume data))
-    | None =>
-      h.fail("server read no application data")
+    | None => h.fail("server read no application data")
+    | SSLClosed => h.fail("server read returned SSLClosed")
+    | SSLError => h.fail("server read returned SSLError")
+    | InvalidOperation => h.fail("server read returned InvalidOperation")
     end
 
     client.dispose()
@@ -1599,7 +1609,7 @@ class \nodoc\ iso _TestSSLCreateClientNoAvailableProtocol is UnitTest
       end
 
     h.assert_true(
-      client.state() is SSLError,
+      client.receive("") is SSLError,
       "a client with no available protocol should report SSLError")
 
     client.dispose()
@@ -1626,10 +1636,10 @@ class \nodoc\ iso _TestSSLReceiveNonTLSBytes is UnitTest
         return
       end
 
-    client.receive("NOT AN SSL HANDSHAKE\r\n")
+    let result = client.receive("NOT AN SSL HANDSHAKE\r\n")
 
     h.assert_true(
-      client.state() is SSLError,
+      result is SSLError,
       "bytes that are not a TLS record should report SSLError")
 
     client.dispose()
@@ -1645,7 +1655,7 @@ class \nodoc\ iso _TestSSLReceiveUntrustedChain is UnitTest
   fun name(): String => "net/ssl/SSL.receive/untrusted_chain"
 
   fun apply(h: TestHelper) =>
-    (let client, let server) =
+    (let client, let server, let cr, _) =
       try
         _TestSSLSessionPair.attempt(
           h,
@@ -1657,7 +1667,7 @@ class \nodoc\ iso _TestSSLReceiveUntrustedChain is UnitTest
       end
 
     h.assert_true(
-      client.state() is SSLAuthFail,
+      cr is SSLAuthFail,
       "a chain the client does not trust should report SSLAuthFail")
 
     client.dispose()
@@ -1676,7 +1686,7 @@ class \nodoc\ iso _TestSSLReceivePeerRejectedOurCert is UnitTest
   fun name(): String => "net/ssl/SSL.receive/peer_rejected_our_cert"
 
   fun apply(h: TestHelper) =>
-    (let client, let server) =
+    (let client, let server, _, let sr) =
       try
         _TestSSLSessionPair.attempt(
           h,
@@ -1689,7 +1699,7 @@ class \nodoc\ iso _TestSSLReceivePeerRejectedOurCert is UnitTest
       end
 
     h.assert_true(
-      server.state() is SSLError,
+      sr is SSLError,
       "a peer that rejected our certificate should report SSLError")
 
     client.dispose()
@@ -1706,7 +1716,7 @@ class \nodoc\ iso _TestSSLReceiveHostnameMismatch is UnitTest
   fun name(): String => "net/ssl/SSL.receive/hostname_mismatch"
 
   fun apply(h: TestHelper) =>
-    (let client, let server) =
+    (let client, let server, let cr, _) =
       try
         let client_ctx =
           _TestSSLContext(h where authority = true, client_verify = true)?
@@ -1719,7 +1729,7 @@ class \nodoc\ iso _TestSSLReceiveHostnameMismatch is UnitTest
       end
 
     h.assert_true(
-      client.state() is SSLAuthFail,
+      cr is SSLAuthFail,
       "a certificate that is not valid for the hostname should report "
         + "SSLAuthFail")
 
@@ -1737,7 +1747,7 @@ class \nodoc\ iso _TestSSLReceiveNoSharedVersion is UnitTest
   fun name(): String => "net/ssl/SSL.receive/no_shared_version"
 
   fun apply(h: TestHelper) =>
-    (let client, let server) =
+    (let client, let server, let cr, let sr) =
       try
         _TestSSLSessionPair.attempt(
           h,
@@ -1758,10 +1768,10 @@ class \nodoc\ iso _TestSSLReceiveNoSharedVersion is UnitTest
       end
 
     h.assert_true(
-      client.state() is SSLError,
+      cr is SSLError,
       "a client with no protocol version in common should report SSLError")
     h.assert_true(
-      server.state() is SSLError,
+      sr is SSLError,
       "a server with no protocol version in common should report SSLError")
 
     client.dispose()
@@ -1783,7 +1793,7 @@ class \nodoc\ iso _TestSSLReceiveNoPeerCertificate is UnitTest
   fun name(): String => "net/ssl/SSL.receive/no_peer_certificate"
 
   fun apply(h: TestHelper) =>
-    (let client, let server) =
+    (let client, let server, let cr, let sr) =
       try
         _TestSSLSessionPair.attempt(
           h,
@@ -1804,10 +1814,10 @@ class \nodoc\ iso _TestSSLReceiveNoPeerCertificate is UnitTest
       end
 
     h.assert_true(
-      server.state() is SSLAuthFail,
+      sr is SSLAuthFail,
       "a peer that presented no certificate should report SSLAuthFail")
     h.assert_true(
-      client.state() is SSLReady,
+      cr is SSLReady,
       "the client accepted the server and finished before the alert")
 
     client.dispose()
@@ -1834,7 +1844,7 @@ class \nodoc\ iso _TestSSLReceiveVerifyOffNeverAuthFails is UnitTest
   fun name(): String => "net/ssl/SSL.receive/verify_off_never_auth_fails"
 
   fun apply(h: TestHelper) =>
-    (let client, let server) =
+    (let client, let server, let cr, _) =
       try
         _TestSSLSessionPair.attempt(
           h,
@@ -1848,7 +1858,7 @@ class \nodoc\ iso _TestSSLReceiveVerifyOffNeverAuthFails is UnitTest
       end
 
     h.assert_true(
-      client.state() is SSLError,
+      cr is SSLError,
       "a session that was not asked to verify should report SSLError")
 
     client.dispose()
@@ -1891,22 +1901,26 @@ class \nodoc\ iso _TestSSLReceiveUnprovenCertificate is UnitTest
       end
 
     try
-      _TestSSLTransfer(client, server)?
+      _TestSSLTransfer(client, server)
 
-      let flight = server.send()?
+      let flight =
+        match \exhaustive\ server.send()
+        | let d: Array[U8] iso => consume d
+        | None => error
+        end
       let at = flight.size() - 80
       flight(at)? = flight(at)? xor 0xFF
-      client.receive(consume flight)
+      let cr = client.receive(consume flight)
+      h.assert_true(
+        cr is SSLAuthFail,
+        "a certificate the peer cannot prove it holds should report "
+          + "SSLAuthFail")
     else
       h.fail("could not corrupt the server's flight")
       client.dispose()
       server.dispose()
       return
     end
-
-    h.assert_true(
-      client.state() is SSLAuthFail,
-      "a certificate the peer cannot prove it holds should report SSLAuthFail")
 
     client.dispose()
     server.dispose()
@@ -1971,7 +1985,7 @@ class \nodoc\ iso _TestSSLReceiveUntrustedClientChain is UnitTest
   fun name(): String => "net/ssl/SSL.receive/untrusted_client_chain"
 
   fun apply(h: TestHelper) =>
-    (let client, let server) =
+    (let client, let server, _, let sr) =
       try
         _TestSSLSessionPair.attempt(
           h,
@@ -1983,7 +1997,7 @@ class \nodoc\ iso _TestSSLReceiveUntrustedClientChain is UnitTest
       end
 
     h.assert_true(
-      server.state() is SSLAuthFail,
+      sr is SSLAuthFail,
       "a client chain the server does not trust should report SSLAuthFail")
 
     client.dispose()
@@ -2006,18 +2020,18 @@ class \nodoc\ iso _TestSSLReceiveALPNFatalWithQueuedError is UnitTest
   fun apply(h: TestHelper) =>
     let auth = FileAuth(h.env.root)
 
-    let clean_state = _attempt(h, _TestALPNFatalResolver)
-    let dirty_state =
+    let clean_result = _attempt(h, _TestALPNFatalResolver)
+    let dirty_result =
       _attempt(h, _TestALPNContaminatingFatalResolver(auth))
 
     h.assert_true(
-      clean_state is dirty_state,
-      "queue contamination from the resolver changed the server's state")
+      clean_result is dirty_result,
+      "queue contamination from the resolver changed the server's result")
 
   fun _attempt(
     h: TestHelper,
     resolver: ALPNProtocolResolver val)
-    : SSLState
+    : SSLReceiveResult
   =>
     let auth = FileAuth(h.env.root)
     let sslctx =
@@ -2035,21 +2049,20 @@ class \nodoc\ iso _TestSSLReceiveALPNFatalWithQueuedError is UnitTest
         end
       else
         h.fail("ssl context setup failed")
-        return SSLHandshake
+        return SSLError
       end
 
-    (let client, let server) =
+    (let client, let server, _, let sr) =
       try
         _TestSSLSessionPair.attempt(h, sslctx, sslctx)?
       else
         h.fail("could not create an SSL session pair")
-        return SSLHandshake
+        return SSLError
       end
 
-    let state = server.state()
     client.dispose()
     server.dispose()
-    state
+    sr
 
 class \nodoc\ iso _TestSSLFailedHandshakeDoesNotAffectLaterRead is UnitTest
   """
@@ -2093,10 +2106,10 @@ class \nodoc\ iso _TestSSLFailedHandshakeDoesNotAffectLaterRead is UnitTest
       end
 
     // These bytes are not a valid TLS record, so the handshake fails.
-    failed.receive("NOT AN SSL HANDSHAKE\r\n")
+    let fr = failed.receive("NOT AN SSL HANDSHAKE\r\n")
     h.assert_true(
-      failed.state() isnt SSLHandshake,
-      "non-handshake bytes should have taken the session out of SSLHandshake")
+      fr is SSLError,
+      "non-handshake bytes should report SSLError")
 
     // With an empty queue this test cannot fail whatever `read` does, so check
     // the failure left something on it.
@@ -2112,10 +2125,13 @@ class \nodoc\ iso _TestSSLFailedHandshakeDoesNotAffectLaterRead is UnitTest
         "a read with no data returned " + (consume data).size().string()
           + " bytes")
     | None => None
+    | SSLClosed =>
+      h.fail("a session with nothing to read reported SSLClosed")
+    | SSLError =>
+      h.fail("a session with nothing to read reported SSLError")
+    | InvalidOperation =>
+      h.fail("a session with nothing to read reported InvalidOperation")
     end
-    h.assert_true(
-      server.state() is SSLReady,
-      "a session with nothing to read should still be SSLReady")
 
     failed.dispose()
     failed_peer.dispose()
@@ -2155,11 +2171,14 @@ class \nodoc\ iso _TestSSLReadReportsGenuineError is UnitTest
       h.fail(
         "a corrupted record produced " + (consume data).size().string()
           + " bytes")
-    | None => None
+    | None =>
+      h.fail("a corrupted record returned None instead of SSLError")
+    | SSLClosed =>
+      h.fail("a corrupted record returned SSLClosed instead of SSLError")
+    | SSLError => None
+    | InvalidOperation =>
+      h.fail("a corrupted record returned InvalidOperation instead of SSLError")
     end
-    h.assert_true(
-      server.state() is SSLError,
-      "a record that will not decrypt should put the session in SSLError")
 
     client.dispose()
     server.dispose()
@@ -2189,7 +2208,7 @@ class \nodoc\ iso _TestSSLReadAfterErrorReturnsOnlyDecryptedBytes is UnitTest
     // buffers these bytes and returns nothing.
     try
       client.write(recover val Array[U8].init('A', 50) end)?
-      _TestSSLTransfer(client, server)?
+      _TestSSLTransfer(client, server)
     else
       h.fail("client could not send application data")
       client.dispose()
@@ -2206,6 +2225,21 @@ class \nodoc\ iso _TestSSLReadAfterErrorReturnsOnlyDecryptedBytes is UnitTest
       server.dispose()
       return
     | None => None
+    | SSLClosed =>
+      h.fail("read returned SSLClosed before any close")
+      client.dispose()
+      server.dispose()
+      return
+    | SSLError =>
+      h.fail("read returned SSLError before any corruption")
+      client.dispose()
+      server.dispose()
+      return
+    | InvalidOperation =>
+      h.fail("read returned InvalidOperation before any corruption")
+      client.dispose()
+      server.dispose()
+      return
     end
 
     try
@@ -2223,11 +2257,14 @@ class \nodoc\ iso _TestSSLReadAfterErrorReturnsOnlyDecryptedBytes is UnitTest
       h.fail(
         "a corrupted record produced " + (consume data).size().string()
           + " bytes")
-    | None => None
+    | None =>
+      h.fail("a corrupted record returned None instead of SSLError")
+    | SSLClosed =>
+      h.fail("a corrupted record returned SSLClosed instead of SSLError")
+    | SSLError => None
+    | InvalidOperation =>
+      h.fail("a corrupted record returned InvalidOperation instead of SSLError")
     end
-    h.assert_true(
-      server.state() is SSLError,
-      "a record that will not decrypt should put the session in SSLError")
 
     match \exhaustive\ server.read(100)
     | let data: Array[U8] iso =>
@@ -2235,6 +2272,11 @@ class \nodoc\ iso _TestSSLReadAfterErrorReturnsOnlyDecryptedBytes is UnitTest
         "a read of 100 returned " + (consume data).size().string()
           + " bytes with only 50 decrypted")
     | None => None
+    | SSLClosed =>
+      h.fail("read returned SSLClosed on an errored session")
+    | SSLError => None
+    | InvalidOperation =>
+      h.fail("read returned InvalidOperation on an errored session")
     end
 
     // A read with no `expect` decrypts before it hands anything over, so on a
@@ -2245,6 +2287,11 @@ class \nodoc\ iso _TestSSLReadAfterErrorReturnsOnlyDecryptedBytes is UnitTest
         "a read with no expect returned " + (consume data).size().string()
           + " bytes from a failed session")
     | None => None
+    | SSLClosed =>
+      h.fail("read returned SSLClosed on an errored session")
+    | SSLError => None
+    | InvalidOperation =>
+      h.fail("read returned InvalidOperation on an errored session")
     end
 
     match \exhaustive\ server.read(50)
@@ -2255,6 +2302,12 @@ class \nodoc\ iso _TestSSLReadAfterErrorReturnsOnlyDecryptedBytes is UnitTest
         "a read of 50 returned something other than the 50 decrypted bytes")
     | None =>
       h.fail("a read of 50 returned none of the 50 bytes that were decrypted")
+    | SSLClosed =>
+      h.fail("a read of 50 returned SSLClosed")
+    | SSLError =>
+      h.fail("a read of 50 returned SSLError")
+    | InvalidOperation =>
+      h.fail("a read of 50 returned InvalidOperation")
     end
 
     client.dispose()
@@ -2279,7 +2332,7 @@ class \nodoc\ iso _TestSSLReadWithBufferedBytes is UnitTest
 
     try
       client.write(recover val Array[U8].init('A', 50) end)?
-      _TestSSLTransfer(client, server)?
+      _TestSSLTransfer(client, server)
     else
       h.fail("client could not send application data")
       client.dispose()
@@ -2296,11 +2349,22 @@ class \nodoc\ iso _TestSSLReadWithBufferedBytes is UnitTest
       server.dispose()
       return
     | None => None
+    | SSLClosed =>
+      h.fail("read returned SSLClosed on a healthy session")
+      client.dispose()
+      server.dispose()
+      return
+    | SSLError =>
+      h.fail("read returned SSLError on a healthy session")
+      client.dispose()
+      server.dispose()
+      return
+    | InvalidOperation =>
+      h.fail("read returned InvalidOperation on a healthy session")
+      client.dispose()
+      server.dispose()
+      return
     end
-
-    h.assert_true(
-      server.state() is SSLReady,
-      "the session should still be SSLReady")
 
     match \exhaustive\ server.read()
     | let data: Array[U8] iso =>
@@ -2308,6 +2372,12 @@ class \nodoc\ iso _TestSSLReadWithBufferedBytes is UnitTest
         "a read with no expect returned " + (consume data).size().string()
           + " bytes from a call that decrypted nothing")
     | None => None
+    | SSLClosed =>
+      h.fail("read returned SSLClosed on a healthy session")
+    | SSLError =>
+      h.fail("read returned SSLError on a healthy session")
+    | InvalidOperation =>
+      h.fail("read returned InvalidOperation on a healthy session")
     end
 
     match \exhaustive\ server.read(20)
@@ -2317,6 +2387,9 @@ class \nodoc\ iso _TestSSLReadWithBufferedBytes is UnitTest
         (consume data).size(),
         "a read of 20 against 50 buffered bytes returned")
     | None => h.fail("a read of 20 returned None with 50 bytes buffered")
+    | SSLClosed => h.fail("a read of 20 returned SSLClosed")
+    | SSLError => h.fail("a read of 20 returned SSLError")
+    | InvalidOperation => h.fail("a read of 20 returned InvalidOperation")
     end
 
     client.dispose()
@@ -2356,6 +2429,11 @@ class \nodoc\ iso _TestSSLReadNoExpectAfterError is UnitTest
         "a corrupted record produced " + (consume data).size().string()
           + " bytes")
     | None => None
+    | SSLClosed =>
+      h.fail("read returned SSLClosed on an errored session")
+    | SSLError => None
+    | InvalidOperation =>
+      h.fail("read returned InvalidOperation on an errored session")
     end
 
     // A read of one byte returns the buffer whole if the failed read left
@@ -2366,6 +2444,11 @@ class \nodoc\ iso _TestSSLReadNoExpectAfterError is UnitTest
         "a read of 1 returned " + (consume data).size().string()
           + " bytes with none decrypted")
     | None => None
+    | SSLClosed =>
+      h.fail("read returned SSLClosed on an errored session")
+    | SSLError => None
+    | InvalidOperation =>
+      h.fail("read returned InvalidOperation on an errored session")
     end
 
     client.dispose()
@@ -2392,7 +2475,7 @@ class \nodoc\ iso _TestSSLReadPendingExceedsExpect is UnitTest
 
     try
       client.write(recover val Array[U8].init('A', 50) end)?
-      _TestSSLTransfer(client, server)?
+      _TestSSLTransfer(client, server)
     else
       h.fail("client could not send application data")
       client.dispose()
@@ -2404,12 +2487,18 @@ class \nodoc\ iso _TestSSLReadPendingExceedsExpect is UnitTest
     | let data: Array[U8] iso =>
       h.assert_eq[USize](20, (consume data).size(), "read(20) returned")
     | None => h.fail("read(20) returned None with 50 bytes available")
+    | SSLClosed => h.fail("read(20) returned SSLClosed")
+    | SSLError => h.fail("read(20) returned SSLError")
+    | InvalidOperation => h.fail("read(20) returned InvalidOperation")
     end
 
     match \exhaustive\ server.read(10)
     | let data: Array[U8] iso =>
       h.assert_eq[USize](10, (consume data).size(), "read(10) returned")
     | None => h.fail("read(10) returned None with 30 bytes pending")
+    | SSLClosed => h.fail("read(10) returned SSLClosed")
+    | SSLError => h.fail("read(10) returned SSLError")
+    | InvalidOperation => h.fail("read(10) returned InvalidOperation")
     end
 
     client.dispose()
@@ -2417,17 +2506,16 @@ class \nodoc\ iso _TestSSLReadPendingExceedsExpect is UnitTest
 
 class \nodoc\ iso _TestSSLReadOnAuthFail is UnitTest
   """
-  `read` on a session in `SSLAuthFail` returns `None` and does not overwrite
-  the state with `SSLError`.
+  `read` on a session that failed authentication returns `SSLError` and does
+  not lose the authentication failure.
 
-  Without the guard, `read` calls `SSL_read`, which returns an error that
-  sets `_state = SSLError`, losing the distinction between an authentication
-  failure and any other SSL-layer error.
+  The `receive` call that drove the handshake reported `SSLAuthFail`. A
+  subsequent `read` with no buffered data returns `SSLError`.
   """
   fun name(): String => "net/ssl/SSL.read/on_auth_fail"
 
   fun apply(h: TestHelper) =>
-    (let client, let server) =
+    (let client, let server, let cr, _) =
       try
         let client_ctx =
           _TestSSLContext(h where authority = true, client_verify = true)?
@@ -2440,20 +2528,20 @@ class \nodoc\ iso _TestSSLReadOnAuthFail is UnitTest
       end
 
     h.assert_true(
-      client.state() is SSLAuthFail,
-      "the client should be in SSLAuthFail after a hostname mismatch")
+      cr is SSLAuthFail,
+      "the client should report SSLAuthFail after a hostname mismatch")
 
     h.assert_true(
-      client.read() is None,
-      "read() on an SSLAuthFail session should return None")
+      client.read() is SSLError,
+      "read() on a failed session should return SSLError")
 
     h.assert_true(
-      client.read(10) is None,
-      "read(10) on an SSLAuthFail session should return None")
+      client.read(10) is SSLError,
+      "read(10) on a failed session should return SSLError")
 
     h.assert_true(
-      client.state() is SSLAuthFail,
-      "read() should not overwrite SSLAuthFail")
+      client.receive("") is SSLAuthFail,
+      "receive should still report SSLAuthFail after reads")
 
     client.dispose()
     server.dispose()
@@ -2495,7 +2583,7 @@ class \nodoc\ iso _TestSSLALPNSelectedOnAuthFail is UnitTest
         return
       end
 
-    (let client, let server) =
+    (let client, let server, let cr, _) =
       try
         _TestSSLSessionPair.attempt(
           h, client_ctx, server_ctx where hostname = "nomatch.example.com")?
@@ -2505,8 +2593,8 @@ class \nodoc\ iso _TestSSLALPNSelectedOnAuthFail is UnitTest
       end
 
     h.assert_true(
-      client.state() is SSLAuthFail,
-      "the client should be in SSLAuthFail after a hostname mismatch")
+      cr is SSLAuthFail,
+      "the client should report SSLAuthFail after a hostname mismatch")
 
     h.assert_true(
       try (server.alpn_selected() as String) == "h2" else false end,
@@ -2514,7 +2602,7 @@ class \nodoc\ iso _TestSSLALPNSelectedOnAuthFail is UnitTest
 
     h.assert_true(
       client.alpn_selected() is None,
-      "alpn_selected() on an SSLAuthFail session should return None")
+      "alpn_selected() on a failed session should return None")
 
     client.dispose()
     server.dispose()
@@ -2557,7 +2645,7 @@ class \nodoc\ iso _TestSSLALPNSelectedOnError is UnitTest
         return
       end
 
-    (let client, let server) =
+    (let client, let server, let cr, _) =
       try
         _TestSSLSessionPair.attempt(h, client_ctx, server_ctx)?
       else
@@ -2566,8 +2654,8 @@ class \nodoc\ iso _TestSSLALPNSelectedOnError is UnitTest
       end
 
     h.assert_true(
-      client.state() is SSLReady,
-      "the client should be in SSLReady after a successful handshake")
+      cr is SSLReady,
+      "the client should report SSLReady after a successful handshake")
 
     h.assert_true(
       try (server.alpn_selected() as String) == "h2" else false end,
@@ -2582,15 +2670,15 @@ class \nodoc\ iso _TestSSLALPNSelectedOnError is UnitTest
       return
     end
 
-    server.read()
+    let sr = server.read()
 
     h.assert_true(
-      server.state() is SSLError,
-      "a corrupted record should put the server in SSLError")
+      sr is SSLError,
+      "a corrupted record should report SSLError from read")
 
     h.assert_true(
       server.alpn_selected() is None,
-      "alpn_selected() on an SSLError session should return None")
+      "alpn_selected() on a failed session should return None")
 
     client.dispose()
     server.dispose()
@@ -2605,7 +2693,7 @@ class \nodoc\ iso _TestSSLReceiveOnAuthFail is UnitTest
   fun name(): String => "net/ssl/SSL.receive/on_auth_fail"
 
   fun apply(h: TestHelper) =>
-    (let client, let server) =
+    (let client, let server, let cr, let sr) =
       try
         let client_ctx =
           _TestSSLContext(h where authority = true, client_verify = true)?
@@ -2618,16 +2706,19 @@ class \nodoc\ iso _TestSSLReceiveOnAuthFail is UnitTest
       end
 
     h.assert_true(
-      client.state() is SSLAuthFail,
-      "the client should be in SSLAuthFail after a hostname mismatch")
+      cr is SSLAuthFail,
+      "the client should report SSLAuthFail after a hostname mismatch")
     h.assert_true(
-      server.state() is SSLReady,
-      "the server should be in SSLReady")
+      sr is SSLReady,
+      "the server should report SSLReady")
 
     try
       server.write("should not be received")?
-      while server.can_send() do
-        client.receive(server.send()?)
+      while true do
+        match \exhaustive\ server.send()
+        | let d: Array[U8] iso => client.receive(consume d)
+        | None => break
+        end
       end
     else
       h.fail("server could not produce ciphertext")
@@ -2637,12 +2728,12 @@ class \nodoc\ iso _TestSSLReceiveOnAuthFail is UnitTest
     end
 
     h.assert_true(
-      client.read() is None,
-      "data received after SSLAuthFail should not be readable")
+      client.read() is SSLError,
+      "data received after auth failure should not be readable")
 
     h.assert_true(
-      client.state() is SSLAuthFail,
-      "the state should still be SSLAuthFail")
+      client.receive("") is SSLAuthFail,
+      "the session should still report SSLAuthFail")
 
     client.dispose()
     server.dispose()
@@ -2666,28 +2757,28 @@ class \nodoc\ iso _TestSSLReceiveOnError is UnitTest
         return
       end
 
-    client.receive("NOT AN SSL HANDSHAKE\r\n")
+    let r1 = client.receive("NOT AN SSL HANDSHAKE\r\n")
 
     h.assert_true(
-      client.state() is SSLError,
-      "non-TLS bytes should put the session in SSLError")
+      r1 is SSLError,
+      "non-TLS bytes should report SSLError")
 
-    client.receive("more data after error")
+    let r2 = client.receive("more data after error")
 
     h.assert_true(
-      client.state() is SSLError,
-      "the state should still be SSLError after a second receive")
+      r2 is SSLError,
+      "receive should still report SSLError after a second receive")
 
     client.dispose()
 
 class \nodoc\ iso _TestSSLDisposeBeforeHandshake is UnitTest
   """
-  A session disposed before its handshake finishes is inert too, and `state`
-  reports `SSLDisposed` rather than the `SSLHandshake` it was in. This is the
-  case from issue #66: a fresh client session, disposed, then read.
+  A session disposed before its handshake finishes is inert: `read` returns
+  `InvalidOperation`, `send` returns `None`, and `receive` returns
+  `InvalidOperation`.
 
-  A fresh client session has a ClientHello waiting to go out, so `can_send`
-  returning `false` after the dispose is the disposed check and not an empty
+  A fresh client session has a ClientHello waiting to go out, so `send`
+  returning `None` after the dispose is the disposed check and not an empty
   BIO.
   """
   fun name(): String => "net/ssl/SSL.dispose/before_handshake"
@@ -2702,30 +2793,21 @@ class \nodoc\ iso _TestSSLDisposeBeforeHandshake is UnitTest
       end
 
     h.assert_true(
-      client.state() is SSLHandshake,
-      "a fresh client session should be in SSLHandshake")
-    h.assert_true(
-      client.can_send(),
+      client.send() isnt None,
       "a fresh client session should have a ClientHello to send")
 
     client.dispose()
 
     h.assert_true(
-      client.state() is SSLDisposed,
-      "dispose() from SSLHandshake should leave the session SSLDisposed")
+      client.read() is InvalidOperation,
+      "read() on a disposed session should return InvalidOperation")
     h.assert_true(
-      client.read() is None,
-      "read() on a disposed session should return None")
-    h.assert_false(
-      client.can_send(),
-      "can_send() on a disposed session should return false")
+      client.send() is None,
+      "send() on a disposed session should return None")
 
-    client.receive("bytes that will never be decrypted")
-
-    try
-      client.send()?
-      h.fail("send() on a disposed session should raise an error")
-    end
+    h.assert_true(
+      client.receive("bytes that will never be decrypted") is InvalidOperation,
+      "receive on a disposed session should return InvalidOperation")
 
     server.dispose()
 
@@ -2749,18 +2831,18 @@ class \nodoc\ iso _TestSSLDisposeTwice is UnitTest
     client.dispose()
 
     h.assert_true(
-      client.read() is None,
-      "read() on a disposed session should return None")
-    h.assert_false(
-      client.can_send(),
-      "can_send() on a disposed session should return false")
+      client.read() is InvalidOperation,
+      "read() on a disposed session should return InvalidOperation")
+    h.assert_true(
+      client.send() is None,
+      "send() on a disposed session should return None")
 
     server.dispose()
 
 class \nodoc\ iso _TestSSLReadAfterDispose is UnitTest
   """
-  `read` on a disposed session returns `None` instead of passing a null
-  `SSL*` to `SSL_pending`.
+  `read` on a disposed session returns `InvalidOperation` instead of passing
+  a null `SSL*` to `SSL_pending`.
   """
   fun name(): String => "net/ssl/SSL.read/after_dispose"
 
@@ -2776,19 +2858,19 @@ class \nodoc\ iso _TestSSLReadAfterDispose is UnitTest
     client.dispose()
 
     h.assert_true(
-      client.read() is None,
-      "read() on a disposed session should return None")
+      client.read() is InvalidOperation,
+      "read() on a disposed session should return InvalidOperation")
     h.assert_true(
-      client.read(4) is None,
-      "read(4) on a disposed session should return None")
+      client.read(4) is InvalidOperation,
+      "read(4) on a disposed session should return InvalidOperation")
 
     server.dispose()
 
 class \nodoc\ iso _TestSSLReadAfterDisposeWithBufferedFrame is UnitTest
   """
   A session holding decrypted bytes from an incomplete `expect` frame returns
-  `None` from `read` once it is disposed, rather than handing those bytes
-  back.
+  `InvalidOperation` from `read` once it is disposed, rather than handing
+  those bytes back.
 
   This is the one post-dispose read that did not crash before the fix. With
   at least `expect` bytes already buffered, `read` returns them without
@@ -2807,7 +2889,7 @@ class \nodoc\ iso _TestSSLReadAfterDisposeWithBufferedFrame is UnitTest
 
     try
       client.write("ab")?
-      _TestSSLTransfer(client, server)?
+      _TestSSLTransfer(client, server)
     else
       h.fail("client could not send application data")
       client.dispose()
@@ -2822,17 +2904,16 @@ class \nodoc\ iso _TestSSLReadAfterDisposeWithBufferedFrame is UnitTest
     server.dispose()
 
     h.assert_true(
-      server.read(2) is None,
-      "read(2) on a disposed session should return None, even with two bytes "
-        + "already buffered")
+      server.read(2) is InvalidOperation,
+      "read(2) on a disposed session should return InvalidOperation, even with"
+        + " two bytes already buffered")
 
     client.dispose()
 
 class \nodoc\ iso _TestSSLReceiveAfterDispose is UnitTest
   """
-  `receive` on a disposed session does nothing instead of writing into a freed
-  BIO. There is nothing to observe afterwards beyond the session still reading
-  as empty.
+  `receive` on a disposed session returns `InvalidOperation` instead of
+  writing into a freed BIO.
   """
   fun name(): String => "net/ssl/SSL.receive/after_dispose"
 
@@ -2846,24 +2927,25 @@ class \nodoc\ iso _TestSSLReceiveAfterDispose is UnitTest
       end
 
     server.dispose()
-    server.receive("bytes that will never be decrypted")
 
     h.assert_true(
-      server.read() is None,
-      "a disposed session has nothing to read")
+      server.receive("bytes that will never be decrypted") is InvalidOperation,
+      "receive on a disposed session should return InvalidOperation")
+
+    h.assert_true(
+      server.read() is InvalidOperation,
+      "read on a disposed session should return InvalidOperation")
 
     client.dispose()
 
-class \nodoc\ iso _TestSSLCanSendAfterDispose is UnitTest
+class \nodoc\ iso _TestSSLSendAfterDisposeReturnsNone is UnitTest
   """
-  `can_send` on a disposed session returns `false` instead of reading a freed
-  BIO.
+  `send` on a disposed session returns `None` instead of reading a freed BIO.
 
-  The session has encrypted bytes waiting when it is disposed, so a `false`
-  here is the disposed check and not an empty BIO. A live session with nothing
-  to send returns `false` too.
+  The session has encrypted bytes waiting when it is disposed, so `None`
+  here is the disposed check and not an empty BIO.
   """
-  fun name(): String => "net/ssl/SSL.can_send/after_dispose"
+  fun name(): String => "net/ssl/SSL.send/after_dispose_returns_none"
 
   fun apply(h: TestHelper) =>
     (let client, let server) =
@@ -2884,55 +2966,14 @@ class \nodoc\ iso _TestSSLCanSendAfterDispose is UnitTest
     end
 
     h.assert_true(
-      client.can_send(),
+      client.send() isnt None,
       "a session that has just written should have bytes to send")
 
     client.dispose()
-
-    h.assert_false(
-      client.can_send(),
-      "can_send() on a disposed session should return false")
-
-    server.dispose()
-
-class \nodoc\ iso _TestSSLSendAfterDispose is UnitTest
-  """
-  `send` on a disposed session raises an error instead of reading a freed BIO.
-
-  The session has encrypted bytes waiting when it is disposed, so the error
-  here comes from the disposed check and not from any of the other reasons
-  `send` raises.
-  """
-  fun name(): String => "net/ssl/SSL.send/after_dispose"
-
-  fun apply(h: TestHelper) =>
-    (let client, let server) =
-      try
-        _TestSSLSessionPair(h)?
-      else
-        h.fail("could not establish an SSL session pair")
-        return
-      end
-
-    try
-      client.write("data")?
-    else
-      h.fail("client could not write application data")
-      client.dispose()
-      server.dispose()
-      return
-    end
 
     h.assert_true(
-      client.can_send(),
-      "a session that has just written should have bytes to send")
-
-    client.dispose()
-
-    try
-      client.send()?
-      h.fail("send() on a disposed session should raise an error")
-    end
+      client.send() is None,
+      "send() on a disposed session should return None")
 
     server.dispose()
 
@@ -2941,9 +2982,6 @@ class \nodoc\ iso _TestSSLWriteAfterDispose is UnitTest
   `write` on a disposed session does nothing and does not raise. Being disposed
   is not an error: `write` raises when the handshake is not complete or when
   `SSL_write` cannot encrypt, neither of which is what happened here.
-
-  The session reaches `SSLReady` first, so the dispose is the only reason
-  `write` could have to stop, and `state` reports `SSLDisposed` afterwards.
   """
   fun name(): String => "net/ssl/SSL.write/after_dispose"
 
@@ -2956,15 +2994,7 @@ class \nodoc\ iso _TestSSLWriteAfterDispose is UnitTest
         return
       end
 
-    h.assert_true(
-      client.state() is SSLReady,
-      "client should be SSLReady after the handshake")
-
     client.dispose()
-
-    h.assert_true(
-      client.state() is SSLDisposed,
-      "dispose() from SSLReady should leave the session SSLDisposed")
 
     try
       client.write("data")?
@@ -2972,8 +3002,8 @@ class \nodoc\ iso _TestSSLWriteAfterDispose is UnitTest
       h.fail("write() on a disposed session should not raise an error")
     end
 
-    h.assert_false(
-      client.can_send(),
+    h.assert_true(
+      client.send() is None,
       "write() on a disposed session should not queue anything to send")
 
     server.dispose()
@@ -3027,10 +3057,6 @@ class \nodoc\ iso _TestSSLContextDisposeTwice is UnitTest
   """
   Disposing a context twice does not free it twice, and the context is still
   inert afterwards.
-
-  `dispose` nulling `_ctx` is what makes the second call safe, and losing that
-  is what this test would catch. The `_ctx.is_null()` check in `dispose` is belt
-  and braces, because `SSL_CTX_free` ignores a null pointer.
   """
   fun name(): String => "net/ssl/SSLContext.dispose/twice"
 
@@ -3172,10 +3198,10 @@ class \nodoc\ iso _TestSSLContextALPNUnadvertisedProtocolFails is UnitTest
 
     // The client's opening flight carries the protocols it advertises. Handing
     // it to the server is what runs the resolver.
-    _TestSSLTransfer(client, server)?
+    let sr = _TestSSLTransfer(client, server)
 
-    h.assert_false(
-      server.state() is SSLHandshake,
+    h.assert_true(
+      sr is SSLError,
       "the server should refuse a protocol the client did not advertise")
 
     client.dispose()
@@ -3768,31 +3794,6 @@ class \nodoc\ iso _TestSSLContextGetMaxProtoVersionOnValReceiver is UnitTest
       ctx.get_max_proto_version(),
       "a val receiver should read back the maximum that was set")
 
-class \nodoc\ iso _TestSSLCanSendOnValReceiver is UnitTest
-  """
-  `can_send` reads through a `val` receiver.
-
-  It reads whether the session has bytes waiting and changes nothing, so a `val`
-  session can call it. A `fun ref` `can_send` could not, and this file stops
-  compiling if that capability comes back.
-
-  A fresh client session has a ClientHello waiting, so `can_send` reads `true`
-  and the assertion is on a value it had to read out of the session. A `val`
-  session cannot be disposed, so the garbage collector frees it.
-  """
-  fun name(): String => "net/ssl/SSL.can_send/on_val_receiver"
-
-  fun apply(h: TestHelper) =>
-    try
-      (let client: SSL val, _) = _TestSSLDefaultSessions(h)?
-
-      h.assert_true(
-        client.can_send(),
-        "a fresh client session should have a ClientHello to send")
-    else
-      h.fail("could not create an SSL session")
-    end
-
 class \nodoc\ iso _TestSSLContextSetAuthorityRootCertsAfterDispose is UnitTest
   """
   `set_authority(None, None)` on a disposed context raises an error rather than
@@ -4041,22 +4042,22 @@ class \nodoc\ iso _TestSSLContextAllowTLSV1u2 is UnitTest
     """
     let max_rounds: USize = 20
     var rounds: USize = 0
+    var cr: SSLReceiveResult = SSLAccepted
+    var sr: SSLReceiveResult = SSLAccepted
 
     while
-      (client.state() is SSLHandshake) or (server.state() is SSLHandshake)
+      (cr is SSLAccepted) or (sr is SSLAccepted)
     do
       if rounds == max_rounds then return false end
       rounds = rounds + 1
 
-      try
-        _TestSSLTransfer(client, server)?
-        _TestSSLTransfer(server, client)?
-      else
-        return false
-      end
+      let sr' = _TestSSLTransfer(client, server)
+      let cr' = _TestSSLTransfer(server, client)
+      if not (sr' is SSLAccepted) then sr = sr' end
+      if not (cr' is SSLAccepted) then cr = cr' end
     end
 
-    (client.state() is SSLReady) and (server.state() is SSLReady)
+    (cr is SSLReady) and (sr is SSLReady)
 
 class \nodoc\ iso _TestSSLContextClientAfterDispose is UnitTest
   """
@@ -4154,15 +4155,14 @@ class \nodoc\ iso _TestSSLCloseFromReady is UnitTest
         return
       end
 
-    h.assert_false(client.can_send(), "nothing queued before close")
+    h.assert_true(
+      client.send() is None,
+      "nothing queued before close")
 
     client.close()
 
     h.assert_true(
-      client.state() is SSLClosed,
-      "state should be SSLClosed after close")
-    h.assert_true(
-      client.can_send(),
+      client.send() isnt None,
       "close_notify should be queued in the output BIO")
 
     client.dispose()
@@ -4185,32 +4185,30 @@ class \nodoc\ iso _TestSSLCloseIdempotent is UnitTest
 
     client.close()
 
-    try
-      while client.can_send() do
-        client.send()?
+    while true do
+      match \exhaustive\ client.send()
+      | let _: Array[U8] iso => None
+      | None => break
       end
     end
 
     client.close()
 
-    h.assert_false(
-      client.can_send(),
-      "second close should produce no additional output")
     h.assert_true(
-      client.state() is SSLClosed,
-      "state should still be SSLClosed")
+      client.send() is None,
+      "second close should produce no additional output")
 
     client.dispose()
     server.dispose()
 
 class \nodoc\ iso _TestSSLCloseFromWrongStates is UnitTest
   """
-  `close` is a no-op from `SSLHandshake`, `SSLAuthFail`, and `SSLError`.
+  `close` is a no-op during handshake, after auth failure, and after error.
   """
   fun name(): String => "net/ssl/SSL.close/from_wrong_states"
 
   fun apply(h: TestHelper) =>
-    // SSLHandshake: a fresh client before any handshake bytes are exchanged
+    // Handshaking: a fresh client before any handshake bytes are exchanged
     (let client, let server) =
       try
         _TestSSLSessionPair.fresh(h)?
@@ -4219,18 +4217,14 @@ class \nodoc\ iso _TestSSLCloseFromWrongStates is UnitTest
         return
       end
 
-    h.assert_true(
-      client.state() is SSLHandshake,
-      "client should start in SSLHandshake")
-
     client.close()
 
     h.assert_true(
-      client.state() is SSLHandshake,
-      "close should not change state from SSLHandshake")
+      client.receive("") is SSLAccepted,
+      "close during handshake should leave session still handshaking")
 
     // SSLAuthFail: a verifying client whose peer presents an untrusted chain
-    (let auth_client, let auth_server) =
+    (let auth_client, let auth_server, let acr, _) =
       try
         _TestSSLSessionPair.attempt(
           h,
@@ -4242,30 +4236,30 @@ class \nodoc\ iso _TestSSLCloseFromWrongStates is UnitTest
       end
 
     h.assert_true(
-      auth_client.state() is SSLAuthFail,
-      "client should be in SSLAuthFail")
+      acr is SSLAuthFail,
+      "client should report SSLAuthFail")
 
     auth_client.close()
 
     h.assert_true(
-      auth_client.state() is SSLAuthFail,
-      "close should not change state from SSLAuthFail")
+      auth_client.receive("") is SSLAuthFail,
+      "receive should still report SSLAuthFail after close")
 
     auth_client.dispose()
     auth_server.dispose()
 
     // SSLError: feed garbage to a fresh client to break its handshake
-    client.receive("NOT A TLS RECORD")
+    let er = client.receive("NOT A TLS RECORD")
 
     h.assert_true(
-      client.state() is SSLError,
-      "client should be in SSLError after garbage")
+      er is SSLError,
+      "client should report SSLError after garbage")
 
     client.close()
 
     h.assert_true(
-      client.state() is SSLError,
-      "close should not change state from SSLError")
+      client.receive("") is SSLError,
+      "receive should still report SSLError after close")
 
     client.dispose()
     server.dispose()
@@ -4289,8 +4283,8 @@ class \nodoc\ iso _TestSSLCloseAfterDispose is UnitTest
     client.close()
 
     h.assert_true(
-      client.state() is SSLDisposed,
-      "state should still be SSLDisposed")
+      client.send() is None,
+      "close after dispose should not queue anything")
 
     server.dispose()
 
@@ -4312,24 +4306,19 @@ class \nodoc\ iso _TestSSLPeerCloseNotifyDetected is UnitTest
 
     client.close()
 
-    try
-      _TestSSLTransfer(client, server)?
-    else
-      h.fail("could not transfer close_notify bytes")
-      client.dispose()
-      server.dispose()
-      return
-    end
+    _TestSSLTransfer(client, server)
 
     match \exhaustive\ server.read()
     | let _: Array[U8] iso =>
       h.fail("server read produced data from a close_notify")
-    | None => None
+    | None =>
+      h.fail("server should report SSLClosed, not None")
+    | SSLClosed => None
+    | SSLError =>
+      h.fail("server should report SSLClosed, not SSLError")
+    | InvalidOperation =>
+      h.fail("server should report SSLClosed, not InvalidOperation")
     end
-
-    h.assert_true(
-      server.state() is SSLClosed,
-      "server should be SSLClosed after receiving peer's close_notify")
 
     client.dispose()
     server.dispose()
@@ -4354,7 +4343,7 @@ class \nodoc\ iso _TestSSLBufferedDataDrainedOnCloseNotify is UnitTest
     // Send 50 bytes, read with expect=100 to accumulate in _read_buf
     try
       client.write(recover val Array[U8].init('A', 50) end)?
-      _TestSSLTransfer(client, server)?
+      _TestSSLTransfer(client, server)
     else
       h.fail("could not send application data")
       client.dispose()
@@ -4369,23 +4358,27 @@ class \nodoc\ iso _TestSSLBufferedDataDrainedOnCloseNotify is UnitTest
       server.dispose()
       return
     | None => None
-    end
-
-    h.assert_true(
-      server.state() is SSLReady,
-      "server should still be SSLReady with partial data buffered")
-
-    // Now client sends close_notify
-    client.close()
-
-    try
-      _TestSSLTransfer(client, server)?
-    else
-      h.fail("could not transfer close_notify bytes")
+    | SSLClosed =>
+      h.fail("read returned SSLClosed before any close")
+      client.dispose()
+      server.dispose()
+      return
+    | SSLError =>
+      h.fail("read returned SSLError on a healthy session")
+      client.dispose()
+      server.dispose()
+      return
+    | InvalidOperation =>
+      h.fail("read returned InvalidOperation on a healthy session")
       client.dispose()
       server.dispose()
       return
     end
+
+    // Now client sends close_notify
+    client.close()
+
+    _TestSSLTransfer(client, server)
 
     // The read should drain the 50 buffered bytes before transitioning
     match \exhaustive\ server.read(100)
@@ -4396,11 +4389,25 @@ class \nodoc\ iso _TestSSLBufferedDataDrainedOnCloseNotify is UnitTest
         "buffered data should be drained on close_notify")
     | None =>
       h.fail("read should have returned the 50 buffered bytes")
+    | SSLClosed => None
+    | SSLError =>
+      h.fail("read returned SSLError instead of buffered data")
+    | InvalidOperation =>
+      h.fail("read returned InvalidOperation instead of buffered data")
     end
 
-    h.assert_true(
-      server.state() is SSLClosed,
-      "server should be SSLClosed after draining buffered data")
+    // After draining, next read should report SSLClosed
+    match \exhaustive\ server.read()
+    | let _: Array[U8] iso =>
+      h.fail("second read produced data after draining")
+    | None =>
+      h.fail("second read returned None instead of SSLClosed")
+    | SSLClosed => None
+    | SSLError =>
+      h.fail("second read returned SSLError instead of SSLClosed")
+    | InvalidOperation =>
+      h.fail("second read returned InvalidOperation instead of SSLClosed")
+    end
 
     client.dispose()
     server.dispose()
@@ -4433,26 +4440,19 @@ class \nodoc\ iso _TestSSLReceiveInClosed is UnitTest
 
     client.close()
 
-    h.assert_true(
-      client.state() is SSLClosed,
-      "client should be SSLClosed")
-
     // Transfer the encrypted bytes to the client after close — this calls
     // client.receive() in SSLClosed state
-    try
-      _TestSSLTransfer(server, client)?
-    else
-      h.fail("could not transfer data to closed client")
-      client.dispose()
-      server.dispose()
-      return
-    end
+    _TestSSLTransfer(server, client)
 
     match \exhaustive\ client.read()
     | let data: Array[U8] iso =>
       h.assert_eq[String]("hello", String.from_array(consume data))
     | None =>
       h.fail("read should return data received after close")
+    | SSLClosed => h.fail("read returned SSLClosed instead of data")
+    | SSLError => h.fail("read returned SSLError instead of data")
+    | InvalidOperation =>
+      h.fail("read returned InvalidOperation instead of data")
     end
 
     client.dispose()
@@ -4474,10 +4474,6 @@ class \nodoc\ iso _TestSSLWriteBlockedInClosed is UnitTest
       end
 
     client.close()
-
-    h.assert_true(
-      client.state() is SSLClosed,
-      "client should be SSLClosed")
 
     let write_succeeded =
       try
@@ -4514,47 +4510,26 @@ class \nodoc\ iso _TestSSLBidirectionalCloseRoundtrip is UnitTest
     // Client initiates shutdown
     client.close()
 
-    try
-      _TestSSLTransfer(client, server)?
-    else
-      h.fail("could not transfer client's close_notify to server")
-      client.dispose()
-      server.dispose()
-      return
-    end
+    _TestSSLTransfer(client, server)
 
     // Server reads and detects close_notify
-    server.read()
+    let sr = server.read()
 
     h.assert_true(
-      server.state() is SSLClosed,
-      "server should be SSLClosed after receiving client's close_notify")
+      sr is SSLClosed,
+      "server should report SSLClosed after receiving client's close_notify")
 
     // Server responds with its own close_notify
     server.close()
 
-    h.assert_true(
-      server.can_send(),
-      "server's response close_notify should be queued in the output BIO")
-
-    try
-      _TestSSLTransfer(server, client)?
-    else
-      h.fail("could not transfer server's close_notify to client")
-      client.dispose()
-      server.dispose()
-      return
-    end
+    _TestSSLTransfer(server, client)
 
     // Client reads server's close_notify response
-    client.read()
+    let cr = client.read()
 
     h.assert_true(
-      client.state() is SSLClosed,
-      "client should still be SSLClosed")
-    h.assert_true(
-      server.state() is SSLClosed,
-      "server should still be SSLClosed")
+      cr is SSLClosed,
+      "client should report SSLClosed")
 
     client.dispose()
     server.dispose()
@@ -4585,7 +4560,11 @@ class \nodoc\ iso _TestSSLCorruptRecordInClosed is UnitTest
     var saved_record: Array[U8] iso = recover iso Array[U8] end
     try
       server.write("payload")?
-      saved_record = server.send()?
+      saved_record =
+        match \exhaustive\ server.send()
+        | let d: Array[U8] iso => consume d
+        | None => error
+        end
     else
       h.fail("could not produce a record to corrupt")
       client.dispose()
@@ -4595,10 +4574,6 @@ class \nodoc\ iso _TestSSLCorruptRecordInClosed is UnitTest
 
     // Get the client into _Closed by calling close()
     client.close()
-
-    h.assert_true(
-      client.state() is SSLClosed,
-      "client should be SSLClosed after close()")
 
     // Feed the corrupted record — same session, so the MAC failure is real
     try
@@ -4612,24 +4587,24 @@ class \nodoc\ iso _TestSSLCorruptRecordInClosed is UnitTest
       return
     end
 
-    client.read()
+    let cr = client.read()
 
     h.assert_true(
-      client.state() is SSLError,
-      "a corrupted record in _Closed should transition to SSLError")
+      cr is SSLError,
+      "a corrupted record in _Closed should report SSLError from read")
 
     client.dispose()
     server.dispose()
 
-class \nodoc\ iso _TestSSLCanSendOnFailedSession is UnitTest
+class \nodoc\ iso _TestSSLSendOnFailedSession is UnitTest
   """
-  `can_send` and `send` work on a failed session, allowing retrieval of
-  alert bytes that OpenSSL queued in the output BIO before the failure.
+  `send` works on a failed session, allowing retrieval of alert bytes that
+  OpenSSL queued in the output BIO before the failure.
 
-  A handshake failure from non-TLS input produces an alert. `can_send` returns
-  `true` while those bytes are in the BIO, and `send` retrieves them.
+  A handshake failure from non-TLS input produces an alert. `send` returns
+  those bytes, and a subsequent `send` returns `None`.
   """
-  fun name(): String => "net/ssl/SSL.can_send/on_failed_session"
+  fun name(): String => "net/ssl/SSL.send/on_failed_session"
 
   fun apply(h: TestHelper) =>
     (let client, let server) =
@@ -4641,40 +4616,28 @@ class \nodoc\ iso _TestSSLCanSendOnFailedSession is UnitTest
       end
 
     // Drive the handshake far enough that the server has state, then corrupt it
-    try
-      _TestSSLTransfer(client, server)?
-      _TestSSLTransfer(server, client)?
-    else
-      h.fail("could not drive initial handshake exchange")
-      client.dispose()
-      server.dispose()
-      return
-    end
+    _TestSSLTransfer(client, server)
+    _TestSSLTransfer(server, client)
 
     // Feed non-TLS bytes to the server to trigger an error with an alert
-    server.receive("NOT TLS DATA\r\n")
-    server.read()
+    let sr = server.receive("NOT TLS DATA\r\n")
 
     h.assert_true(
-      server.state() is SSLError,
-      "server should be in SSLError after receiving non-TLS bytes")
+      sr is SSLError,
+      "server should report SSLError after receiving non-TLS bytes")
 
-    h.assert_true(
-      server.can_send(),
-      "failed session should have alert bytes to send")
-
-    try
-      let alert = server.send()?
+    match \exhaustive\ server.send()
+    | let alert: Array[U8] iso =>
       h.assert_true(
-        alert.size() > 0,
+        (consume alert).size() > 0,
         "alert bytes from a failed session should not be empty")
-    else
-      h.fail("send() on a failed session with queued alert raised an error")
+    | None =>
+      h.fail("failed session should have alert bytes to send")
     end
 
-    h.assert_false(
-      server.can_send(),
-      "can_send should be false after sending the alert")
+    h.assert_true(
+      server.send() is None,
+      "send should return None after sending the alert")
 
     client.dispose()
     server.dispose()
@@ -4701,19 +4664,12 @@ class \nodoc\ iso _TestSSLWriteBlockedInClosing is UnitTest
     // Get server into _Closing: client sends close_notify, server reads it
     client.close()
 
-    try
-      _TestSSLTransfer(client, server)?
-    else
-      h.fail("could not transfer close_notify")
-      client.dispose()
-      server.dispose()
-      return
-    end
+    _TestSSLTransfer(client, server)
 
-    server.read()
+    let sr = server.read()
 
     h.assert_true(
-      server.state() is SSLClosed,
+      sr is SSLClosed,
       "server should report SSLClosed after receiving peer's close_notify")
 
     let write_succeeded =
