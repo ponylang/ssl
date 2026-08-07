@@ -9,6 +9,7 @@ All notable changes to this project will be documented in this file. This projec
 
 ### Added
 
+- Add DTLSContext and DTLS for datagram TLS ([PR #153](https://github.com/ponylang/ssl/pull/153))
 
 ### Changed
 
