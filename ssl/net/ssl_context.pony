@@ -341,8 +341,7 @@ class val SSLContext
     the current maximum, or if the SSL library rejects the version.
 
     Supported versions: SSL3Version, TLS1Version, TLS1u1Version,
-                        TLS1u2Version, TLS1u3Version, DTLS1Version,
-                        DTLS1u2Version
+                        TLS1u2Version, TLS1u3Version
     """
     if _ctx.is_null() then error end
 
@@ -366,8 +365,7 @@ class val SSLContext
     SSLAutoVersion.
 
     Supported versions: SSL3Version, TLS1Version, TLS1u1Version,
-                        TLS1u2Version, TLS1u3Version, DTLS1Version,
-                        DTLS1u2Version
+                        TLS1u2Version, TLS1u3Version
     """
     if _ctx.is_null() then return SSLAutoVersion().ilong() end
 
@@ -382,8 +380,7 @@ class val SSLContext
     the current minimum, or if the SSL library rejects the version.
 
     Supported versions: SSL3Version, TLS1Version, TLS1u1Version,
-                        TLS1u2Version, TLS1u3Version, DTLS1Version,
-                        DTLS1u2Version
+                        TLS1u2Version, TLS1u3Version
     """
     if _ctx.is_null() then error end
 
@@ -407,8 +404,7 @@ class val SSLContext
     SSLAutoVersion.
 
     Supported versions: SSL3Version, TLS1Version, TLS1u1Version,
-                        TLS1u2Version, TLS1u3Version, DTLS1Version,
-                        DTLS1u2Version
+                        TLS1u2Version, TLS1u3Version
     """
     if _ctx.is_null() then return SSLAutoVersion().ilong() end
 

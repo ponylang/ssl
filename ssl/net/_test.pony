@@ -90,6 +90,39 @@ actor \nodoc\ Main is TestList
     test(_TestSSLContextAllowTLSV1u2)
     test(_TestSSLContextClientAfterDispose)
     test(_TestSSLContextServerAfterDispose)
+    test(_TestDTLSHandshakeInMemory)
+    test(_TestDTLSReceiveUntrustedChain)
+    test(_TestDTLSReceiveVerifyOffNeverAuthFails)
+    test(_TestDTLSReceiveHostnameMismatch)
+    test(_TestDTLSDisposeBeforeHandshake)
+    test(_TestDTLSDisposeTwice)
+    test(_TestDTLSReadAfterDispose)
+    test(_TestDTLSReceiveAfterDispose)
+    test(_TestDTLSContextDisposeTwice)
+    test(_TestDTLSContextClientAfterDispose)
+    test(_TestDTLSContextServerAfterDispose)
+    test(_TestDTLSContextSetMinProtoVersionAfterDispose)
+    test(_TestDTLSContextSetMaxProtoVersionAfterDispose)
+    test(_TestDTLSContextSetAuthorityAfterDispose)
+    test(_TestDTLSContextSetCertAfterDispose)
+    test(_TestDTLSContextSetCiphersAfterDispose)
+    test(_TestDTLSContextSetVerifyDepthAfterDispose)
+    test(_TestDTLSContextALPNSetResolverAfterDispose)
+    test(_TestDTLSContextALPNSetClientProtocolsAfterDispose)
+    test(_TestDTLSWriteAfterDispose)
+    test(_TestDTLSSendAfterDisposeReturnsNone)
+    test(_TestDTLSReadAfterDisposeWithBufferedFrame)
+    test(_TestDTLSReadOnAuthFail)
+    test(_TestDTLSReceiveOnAuthFail)
+    test(_TestDTLSSendOnFailedSession)
+    test(_TestDTLSCloseFromReady)
+    test(_TestDTLSCloseIdempotent)
+    test(_TestDTLSCloseFromWrongStates)
+    test(_TestDTLSCloseAfterDispose)
+    test(_TestDTLSPeerCloseNotifyDetected)
+    test(_TestDTLSWriteBlockedInClosed)
+    test(_TestDTLSBidirectionalCloseRoundtrip)
+    test(_TestDTLSWriteBlockedInClosing)
     test(_TestTCPSSLWritev)
     test(_TestTCPSSLExpect)
     test(_TestTCPSSLMute)
@@ -4737,3 +4770,1158 @@ class \nodoc\ iso _TestMatchNameWildcardInsufficientLevels is UnitTest
     h.assert_false(X509._match_name("example.com", "*."))
     // Wildcard followed by dot-dot is not valid
     h.assert_false(X509._match_name("foo.example.com", "*..com"))
+
+primitive \nodoc\ _TestDTLSContext
+  fun val apply(
+    h: TestHelper,
+    cert: Bool = false,
+    authority: Bool = false,
+    client_verify: Bool = true,
+    server_verify: Bool = false)
+    : DTLSContext val ?
+  =>
+    let auth = FileAuth(h.env.root)
+
+    try
+      recover val
+        let ctx: DTLSContext ref = DTLSContext
+        if cert then
+          ctx.set_cert(
+            FilePath(auth, "assets/cert.pem"),
+            FilePath(auth, "assets/key.pem"))?
+        end
+        if authority then
+          ctx.set_authority(FilePath(auth, "assets/cert.pem"))?
+        end
+        ctx.set_client_verify(client_verify)
+        ctx.set_server_verify(server_verify)
+        ctx
+      end
+    else
+      h.fail("dtls context setup failed")
+      error
+    end
+
+primitive \nodoc\ _TestDTLSDefaultSessions
+  fun val apply(h: TestHelper): (DTLS iso^, DTLS iso^) ? =>
+    let dtlsctx =
+      _TestDTLSContext(
+        h
+        where cert = true,
+          authority = true,
+          client_verify = false,
+          server_verify = false)?
+
+    let dtls_client =
+      try
+        dtlsctx.client()?
+      else
+        h.fail("failed getting dtls client session")
+        error
+      end
+    let dtls_server =
+      try
+        dtlsctx.server()?
+      else
+        h.fail("failed getting dtls server session")
+        error
+      end
+
+    (consume dtls_client, consume dtls_server)
+
+primitive \nodoc\ _TestDTLSTransfer
+  fun val apply(sender: DTLS, receiver: DTLS): SSLReceiveResult =>
+    var result: SSLReceiveResult = SSLAccepted
+    while true do
+      match \exhaustive\ sender.send()
+      | let data: Array[U8] iso =>
+        result = receiver.receive(consume data)
+      | None => break
+      end
+    end
+    result
+
+primitive \nodoc\ _TestDTLSSessionPair
+  fun val apply(h: TestHelper): (DTLS, DTLS) ? =>
+    (let client, let server) = fresh(h)?
+    _handshake(h, client, server)?
+    (client, server)
+
+  fun val fresh(h: TestHelper): (DTLS, DTLS) ? =>
+    (let client_session, let server_session) = _TestDTLSDefaultSessions(h)?
+    let client: DTLS = consume client_session
+    let server: DTLS = consume server_session
+    (client, server)
+
+  fun val attempt(
+    h: TestHelper,
+    client_ctx: DTLSContext val,
+    server_ctx: DTLSContext val,
+    hostname: String = "")
+    : (DTLS, DTLS, SSLReceiveResult, SSLReceiveResult) ?
+  =>
+    let client: DTLS =
+      try
+        client_ctx.client(hostname)?
+      else
+        h.fail("failed getting dtls client session")
+        error
+      end
+    let server: DTLS =
+      try
+        server_ctx.server()?
+      else
+        h.fail("failed getting dtls server session")
+        client.dispose()
+        error
+      end
+    (let cr, let sr) = _pump(client, server)
+    (client, server, cr, sr)
+
+  fun val _pump(
+    client: DTLS,
+    server: DTLS)
+    : (SSLReceiveResult, SSLReceiveResult)
+  =>
+    var rounds: USize = 0
+    var client_result: SSLReceiveResult = SSLAccepted
+    var server_result: SSLReceiveResult = SSLAccepted
+
+    while
+      ((client_result is SSLAccepted) or (server_result is SSLAccepted))
+        and (rounds < _max_rounds())
+    do
+      rounds = rounds + 1
+      let sr = _TestDTLSTransfer(client, server)
+      let cr = _TestDTLSTransfer(server, client)
+      if not (sr is SSLAccepted) then server_result = sr end
+      if not (cr is SSLAccepted) then client_result = cr end
+    end
+
+    (client_result, server_result)
+
+  fun val _max_rounds(): USize => 20
+
+  fun val _handshake(h: TestHelper, client: DTLS, server: DTLS) ? =>
+    (let cr, let sr) = _pump(client, server)
+
+    if (cr is SSLAccepted) or (sr is SSLAccepted) then
+      h.fail("in memory DTLS handshake did not finish")
+      error
+    end
+
+    if (cr isnt SSLReady) or (sr isnt SSLReady) then
+      h.fail("in memory DTLS handshake did not reach SSLReady")
+      error
+    end
+
+class \nodoc\ iso _TestDTLSHandshakeInMemory is UnitTest
+  """
+  Two DTLS sessions can complete a handshake with no transport between them by
+  handing each side's outgoing bytes straight to the other, and application
+  data written by one can be read by the other.
+  """
+  fun name(): String => "net/dtls/DTLS/handshake_in_memory"
+
+  fun apply(h: TestHelper) =>
+    (let client, let server) =
+      try
+        _TestDTLSSessionPair(h)?
+      else
+        h.fail("could not establish a DTLS session pair")
+        return
+      end
+
+    try
+      client.write("hello")?
+      _TestDTLSTransfer(client, server)
+    else
+      h.fail("client could not send application data")
+      client.dispose()
+      server.dispose()
+      return
+    end
+
+    match \exhaustive\ server.read()
+    | let data: Array[U8] iso =>
+      h.assert_eq[String]("hello", String.from_array(consume data))
+    | None => h.fail("server read no application data")
+    | SSLClosed => h.fail("server read returned SSLClosed")
+    | SSLError => h.fail("server read returned SSLError")
+    | InvalidOperation => h.fail("server read returned InvalidOperation")
+    end
+
+    client.dispose()
+    server.dispose()
+
+class \nodoc\ iso _TestDTLSReceiveUntrustedChain is UnitTest
+  """
+  A verifying DTLS session whose peer presents a chain it does not trust
+  reports `SSLAuthFail`.
+  """
+  fun name(): String => "net/dtls/DTLS.receive/untrusted_chain"
+
+  fun apply(h: TestHelper) =>
+    (let client, let server, let cr, _) =
+      try
+        _TestDTLSSessionPair.attempt(
+          h,
+          _TestDTLSContext(h where client_verify = true)?,
+          _TestDTLSContext(h where cert = true)?)?
+      else
+        h.fail("could not create a DTLS session pair")
+        return
+      end
+
+    h.assert_true(
+      cr is SSLAuthFail,
+      "a chain the client does not trust should report SSLAuthFail")
+
+    client.dispose()
+    server.dispose()
+
+class \nodoc\ iso _TestDTLSReceiveVerifyOffNeverAuthFails is UnitTest
+  """
+  A DTLS session created with verification off reports `SSLError` when its
+  handshake fails, not `SSLAuthFail`.
+  """
+  fun name(): String => "net/dtls/DTLS.receive/verify_off_never_auth_fails"
+
+  fun apply(h: TestHelper) =>
+    (let client, let server, let cr, _) =
+      try
+        _TestDTLSSessionPair.attempt(
+          h,
+          _TestDTLSContext(h where client_verify = false)?,
+          _TestDTLSContext(
+            h where cert = true, authority = true, server_verify = true)?)?
+      else
+        h.fail("could not create a DTLS session pair")
+        return
+      end
+
+    h.assert_true(
+      (cr is SSLError) or (cr is SSLReady),
+      "a session that was not asked to verify should not report SSLAuthFail")
+
+    h.assert_false(
+      cr is SSLAuthFail,
+      "a session that was not asked to verify should never report SSLAuthFail")
+
+    client.dispose()
+    server.dispose()
+
+class \nodoc\ iso _TestDTLSReceiveHostnameMismatch is UnitTest
+  """
+  A verifying DTLS session whose peer presents a certificate that is not valid
+  for the hostname reports `SSLAuthFail`.
+  """
+  fun name(): String => "net/dtls/DTLS.receive/hostname_mismatch"
+
+  fun apply(h: TestHelper) =>
+    (let client, let server, let cr, _) =
+      try
+        let client_ctx =
+          _TestDTLSContext(h where authority = true, client_verify = true)?
+        let server_ctx = _TestDTLSContext(h where cert = true)?
+        _TestDTLSSessionPair.attempt(
+          h, client_ctx, server_ctx where hostname = "nomatch.example.com")?
+      else
+        h.fail("could not create a DTLS session pair")
+        return
+      end
+
+    h.assert_true(
+      cr is SSLAuthFail,
+      "a certificate not valid for the hostname should report SSLAuthFail")
+
+    client.dispose()
+    server.dispose()
+
+class \nodoc\ iso _TestDTLSDisposeBeforeHandshake is UnitTest
+  """
+  A session disposed before its handshake finishes is inert: `read` returns
+  `InvalidOperation`, `send` returns `None`, and `receive` returns
+  `InvalidOperation`.
+
+  A fresh client session has a ClientHello waiting to go out, so `send`
+  returning `None` after the dispose is the disposed check and not an empty
+  BIO.
+  """
+  fun name(): String => "net/dtls/DTLS.dispose/before_handshake"
+
+  fun apply(h: TestHelper) =>
+    let dtlsctx =
+      try
+        _TestDTLSContext(
+          h
+          where cert = true,
+            authority = true,
+            client_verify = false,
+            server_verify = false)?
+      else
+        return
+      end
+
+    let client =
+      try
+        dtlsctx.client()?
+      else
+        h.fail("failed getting dtls client session")
+        return
+      end
+
+    h.assert_true(
+      client.send() isnt None,
+      "a fresh client session should have a ClientHello to send")
+
+    client.dispose()
+
+    h.assert_true(
+      client.read() is InvalidOperation,
+      "read() on a disposed session should return InvalidOperation")
+    h.assert_true(
+      client.send() is None,
+      "send() on a disposed session should return None")
+    h.assert_true(
+      client.receive("bytes that will never be decrypted") is InvalidOperation,
+      "receive on a disposed session should return InvalidOperation")
+
+class \nodoc\ iso _TestDTLSDisposeTwice is UnitTest
+  """
+  Disposing a DTLS session twice does not crash.
+  """
+  fun name(): String => "net/dtls/DTLS.dispose/twice"
+
+  fun apply(h: TestHelper) =>
+    (let client, let server) =
+      try
+        _TestDTLSSessionPair(h)?
+      else
+        h.fail("could not establish a DTLS session pair")
+        return
+      end
+
+    client.dispose()
+    client.dispose()
+    server.dispose()
+    server.dispose()
+
+class \nodoc\ iso _TestDTLSReadAfterDispose is UnitTest
+  """
+  Reading from a disposed DTLS session returns `InvalidOperation`.
+  """
+  fun name(): String => "net/dtls/DTLS.read/after_dispose"
+
+  fun apply(h: TestHelper) =>
+    (let client, let server) =
+      try
+        _TestDTLSSessionPair(h)?
+      else
+        h.fail("could not establish a DTLS session pair")
+        return
+      end
+
+    client.dispose()
+
+    h.assert_true(
+      client.read() is InvalidOperation,
+      "read after dispose should return InvalidOperation")
+    h.assert_true(
+      client.read(10) is InvalidOperation,
+      "read(10) after dispose should return InvalidOperation")
+
+    server.dispose()
+
+class \nodoc\ iso _TestDTLSReceiveAfterDispose is UnitTest
+  """
+  Receiving on a disposed DTLS session returns `InvalidOperation`.
+  """
+  fun name(): String => "net/dtls/DTLS.receive/after_dispose"
+
+  fun apply(h: TestHelper) =>
+    (let client, let server) =
+      try
+        _TestDTLSSessionPair(h)?
+      else
+        h.fail("could not establish a DTLS session pair")
+        return
+      end
+
+    client.dispose()
+
+    h.assert_true(
+      client.receive("hello") is InvalidOperation,
+      "receive after dispose should return InvalidOperation")
+
+    server.dispose()
+
+class \nodoc\ iso _TestDTLSContextDisposeTwice is UnitTest
+  """
+  Disposing a DTLSContext twice does not crash.
+  """
+  fun name(): String => "net/dtls/DTLSContext.dispose/twice"
+
+  fun apply(h: TestHelper) =>
+    let ctx = DTLSContext
+
+    ctx
+      .> dispose()
+      .dispose()
+
+class \nodoc\ iso _TestDTLSContextClientAfterDispose is UnitTest
+  """
+  `client` on a disposed DTLSContext raises an error rather than handing a null
+  context to `SSL_new`.
+  """
+  fun name(): String => "net/dtls/DTLSContext.client/after_dispose"
+
+  fun apply(h: TestHelper) =>
+    let live: DTLSContext val = recover val DTLSContext end
+
+    try
+      live.client()?.dispose()
+    else
+      h.fail("client() on a live context should not raise")
+    end
+
+    let mutable: DTLSContext iso = recover iso DTLSContext end
+    mutable.dispose()
+    let disposed: DTLSContext val = consume mutable
+
+    try
+      disposed.client()?.dispose()
+      h.fail("client() on a disposed context should raise")
+    end
+
+class \nodoc\ iso _TestDTLSContextServerAfterDispose is UnitTest
+  """
+  `server` on a disposed DTLSContext raises an error rather than handing a null
+  context to `SSL_new`.
+  """
+  fun name(): String => "net/dtls/DTLSContext.server/after_dispose"
+
+  fun apply(h: TestHelper) =>
+    let live: DTLSContext val = recover val DTLSContext end
+
+    try
+      live.server()?.dispose()
+    else
+      h.fail("server() on a live context should not raise")
+    end
+
+    let mutable: DTLSContext iso = recover iso DTLSContext end
+    mutable.dispose()
+    let disposed: DTLSContext val = consume mutable
+
+    try
+      disposed.server()?.dispose()
+      h.fail("server() on a disposed context should raise")
+    end
+
+class \nodoc\ iso _TestDTLSContextSetMinProtoVersionAfterDispose is UnitTest
+  """
+  `set_min_proto_version` on a disposed DTLSContext raises an error rather than
+  passing a null `SSL_CTX*` to `SSL_CTX_ctrl`.
+  """
+  fun name(): String =>
+    "net/dtls/DTLSContext.set_min_proto_version/after_dispose"
+
+  fun apply(h: TestHelper) =>
+    let ctx = DTLSContext
+
+    try
+      ctx.set_min_proto_version(DTLS1u2Version())?
+    else
+      h.fail("set_min_proto_version() on a live context should not raise")
+    end
+
+    ctx.dispose()
+
+    try
+      ctx.set_min_proto_version(DTLS1u2Version())?
+      h.fail("set_min_proto_version() on a disposed context should raise")
+    end
+
+class \nodoc\ iso _TestDTLSContextSetMaxProtoVersionAfterDispose is UnitTest
+  """
+  `set_max_proto_version` on a disposed DTLSContext raises an error rather than
+  passing a null `SSL_CTX*` to `SSL_CTX_ctrl`.
+  """
+  fun name(): String =>
+    "net/dtls/DTLSContext.set_max_proto_version/after_dispose"
+
+  fun apply(h: TestHelper) =>
+    let ctx = DTLSContext
+
+    try
+      ctx.set_max_proto_version(DTLS1u2Version())?
+    else
+      h.fail("set_max_proto_version() on a live context should not raise")
+    end
+
+    ctx.dispose()
+
+    try
+      ctx.set_max_proto_version(DTLS1u2Version())?
+      h.fail("set_max_proto_version() on a disposed context should raise")
+    end
+
+class \nodoc\ iso _TestDTLSContextSetAuthorityAfterDispose is UnitTest
+  """
+  `set_authority` on a disposed DTLSContext raises an error.
+  """
+  fun name(): String => "net/dtls/DTLSContext.set_authority/after_dispose"
+
+  fun apply(h: TestHelper) =>
+    let auth = FileAuth(h.env.root)
+    let ctx = DTLSContext
+
+    try
+      ctx.set_authority(FilePath(auth, "assets/cert.pem"))?
+    else
+      h.fail("set_authority() on a live context should not raise")
+    end
+
+    ctx.dispose()
+
+    try
+      ctx.set_authority(FilePath(auth, "assets/cert.pem"))?
+      h.fail("set_authority() on a disposed context should raise")
+    end
+
+class \nodoc\ iso _TestDTLSContextSetCertAfterDispose is UnitTest
+  """
+  `set_cert` on a disposed DTLSContext raises an error.
+  """
+  fun name(): String => "net/dtls/DTLSContext.set_cert/after_dispose"
+
+  fun apply(h: TestHelper) =>
+    let auth = FileAuth(h.env.root)
+    let cert = FilePath(auth, "assets/cert.pem")
+    let key = FilePath(auth, "assets/key.pem")
+    let ctx = DTLSContext
+
+    try
+      ctx.set_cert(cert, key)?
+    else
+      h.fail("set_cert() on a live context should not raise")
+    end
+
+    ctx.dispose()
+
+    try
+      ctx.set_cert(cert, key)?
+      h.fail("set_cert() on a disposed context should raise")
+    end
+
+class \nodoc\ iso _TestDTLSContextSetCiphersAfterDispose is UnitTest
+  """
+  `set_ciphers` on a disposed DTLSContext raises an error.
+  """
+  fun name(): String => "net/dtls/DTLSContext.set_ciphers/after_dispose"
+
+  fun apply(h: TestHelper) =>
+    let ctx = DTLSContext
+
+    try
+      ctx.set_ciphers("HIGH")?
+    else
+      h.fail("set_ciphers(\"HIGH\") on a live context should not raise")
+    end
+
+    ctx.dispose()
+
+    try
+      ctx.set_ciphers("HIGH")?
+      h.fail("set_ciphers() on a disposed context should raise")
+    end
+
+class \nodoc\ iso _TestDTLSContextSetVerifyDepthAfterDispose is UnitTest
+  """
+  `set_verify_depth` on a disposed DTLSContext does nothing.
+  """
+  fun name(): String => "net/dtls/DTLSContext.set_verify_depth/after_dispose"
+
+  fun apply(h: TestHelper) =>
+    let ctx = DTLSContext
+
+    ctx.set_verify_depth(4)
+
+    ctx.dispose()
+    ctx.set_verify_depth(4)
+
+    h.assert_false(
+      ctx.alpn_set_client_protocols(["h2"]),
+      "the context should still be disposed")
+
+class \nodoc\ iso _TestDTLSContextALPNSetResolverAfterDispose is UnitTest
+  """
+  `alpn_set_resolver` on a disposed DTLSContext returns `false`.
+  """
+  fun name(): String =>
+    "net/dtls/DTLSContext.alpn_set_resolver/after_dispose"
+
+  fun apply(h: TestHelper) =>
+    let resolver = ALPNStandardProtocolResolver(["h2"])
+    let ctx = DTLSContext
+
+    h.assert_true(
+      ctx.alpn_set_resolver(resolver),
+      "alpn_set_resolver() on a live context should return true")
+
+    ctx.dispose()
+
+    h.assert_false(
+      ctx.alpn_set_resolver(resolver),
+      "alpn_set_resolver() on a disposed context should return false")
+
+class \nodoc\ iso _TestDTLSContextALPNSetClientProtocolsAfterDispose
+  is UnitTest
+  """
+  `alpn_set_client_protocols` on a disposed DTLSContext returns `false`.
+  """
+  fun name(): String =>
+    "net/dtls/DTLSContext.alpn_set_client_protocols/after_dispose"
+
+  fun apply(h: TestHelper) =>
+    let ctx = DTLSContext
+
+    h.assert_true(
+      ctx.alpn_set_client_protocols(["h2"]),
+      "alpn_set_client_protocols() on a live context should return true")
+
+    ctx.dispose()
+
+    h.assert_false(
+      ctx.alpn_set_client_protocols(["h2"]),
+      "alpn_set_client_protocols() on a disposed context should return false")
+
+class \nodoc\ iso _TestDTLSWriteAfterDispose is UnitTest
+  """
+  `write` on a disposed DTLS session does nothing and does not raise.
+  """
+  fun name(): String => "net/dtls/DTLS.write/after_dispose"
+
+  fun apply(h: TestHelper) =>
+    (let client, let server) =
+      try
+        _TestDTLSSessionPair(h)?
+      else
+        h.fail("could not establish a DTLS session pair")
+        return
+      end
+
+    client.dispose()
+
+    try
+      client.write("data")?
+    else
+      h.fail("write() on a disposed session should not raise an error")
+    end
+
+    h.assert_true(
+      client.send() is None,
+      "write() on a disposed session should not queue anything to send")
+
+    server.dispose()
+
+class \nodoc\ iso _TestDTLSSendAfterDisposeReturnsNone is UnitTest
+  """
+  `send` on a disposed DTLS session returns `None` instead of reading a freed
+  BIO.
+
+  The session has encrypted bytes waiting when it is disposed, so `None` here
+  is the disposed check and not an empty BIO.
+  """
+  fun name(): String => "net/dtls/DTLS.send/after_dispose_returns_none"
+
+  fun apply(h: TestHelper) =>
+    (let client, let server) =
+      try
+        _TestDTLSSessionPair(h)?
+      else
+        h.fail("could not establish a DTLS session pair")
+        return
+      end
+
+    try
+      client.write("data")?
+    else
+      h.fail("client could not write application data")
+      client.dispose()
+      server.dispose()
+      return
+    end
+
+    h.assert_true(
+      client.send() isnt None,
+      "a session that has just written should have bytes to send")
+
+    client.dispose()
+
+    h.assert_true(
+      client.send() is None,
+      "send() on a disposed session should return None")
+
+    server.dispose()
+
+class \nodoc\ iso _TestDTLSReadAfterDisposeWithBufferedFrame is UnitTest
+  """
+  A session holding decrypted bytes from an incomplete `expect` frame returns
+  `InvalidOperation` from `read` once it is disposed, rather than handing
+  those bytes back.
+  """
+  fun name(): String => "net/dtls/DTLS.read/after_dispose_with_buffered_frame"
+
+  fun apply(h: TestHelper) =>
+    (let client, let server) =
+      try
+        _TestDTLSSessionPair(h)?
+      else
+        h.fail("could not establish a DTLS session pair")
+        return
+      end
+
+    try
+      client.write("ab")?
+      _TestDTLSTransfer(client, server)
+    else
+      h.fail("client could not send application data")
+      client.dispose()
+      server.dispose()
+      return
+    end
+
+    h.assert_true(
+      server.read(4) is None,
+      "two bytes should not satisfy read(4)")
+
+    server.dispose()
+
+    h.assert_true(
+      server.read(2) is InvalidOperation,
+      "read(2) on a disposed session should return InvalidOperation, even with"
+        + " two bytes already buffered")
+
+    client.dispose()
+
+class \nodoc\ iso _TestDTLSReadOnAuthFail is UnitTest
+  """
+  `read` on a session that failed authentication returns `SSLError` and does
+  not lose the authentication failure.
+  """
+  fun name(): String => "net/dtls/DTLS.read/on_auth_fail"
+
+  fun apply(h: TestHelper) =>
+    (let client, let server, let cr, _) =
+      try
+        let client_ctx =
+          _TestDTLSContext(h where authority = true, client_verify = true)?
+        let server_ctx = _TestDTLSContext(h where cert = true)?
+        _TestDTLSSessionPair.attempt(
+          h, client_ctx, server_ctx where hostname = "nomatch.example.com")?
+      else
+        h.fail("could not create a DTLS session pair")
+        return
+      end
+
+    h.assert_true(
+      cr is SSLAuthFail,
+      "the client should report SSLAuthFail after a hostname mismatch")
+
+    h.assert_true(
+      client.read() is SSLError,
+      "read() on a failed session should return SSLError")
+
+    h.assert_true(
+      client.read(10) is SSLError,
+      "read(10) on a failed session should return SSLError")
+
+    h.assert_true(
+      client.receive("") is SSLAuthFail,
+      "receive should still report SSLAuthFail after reads")
+
+    client.dispose()
+    server.dispose()
+
+class \nodoc\ iso _TestDTLSReceiveOnAuthFail is UnitTest
+  """
+  `receive` on a session in `SSLAuthFail` does nothing.
+  """
+  fun name(): String => "net/dtls/DTLS.receive/on_auth_fail"
+
+  fun apply(h: TestHelper) =>
+    (let client, let server, let cr, let sr) =
+      try
+        let client_ctx =
+          _TestDTLSContext(h where authority = true, client_verify = true)?
+        let server_ctx = _TestDTLSContext(h where cert = true)?
+        _TestDTLSSessionPair.attempt(
+          h, client_ctx, server_ctx where hostname = "nomatch.example.com")?
+      else
+        h.fail("could not create a DTLS session pair")
+        return
+      end
+
+    h.assert_true(
+      cr is SSLAuthFail,
+      "the client should report SSLAuthFail after a hostname mismatch")
+    h.assert_true(
+      sr is SSLReady,
+      "the server should report SSLReady")
+
+    try
+      server.write("should not be received")?
+      while true do
+        match \exhaustive\ server.send()
+        | let d: Array[U8] iso => client.receive(consume d)
+        | None => break
+        end
+      end
+    else
+      h.fail("server could not produce ciphertext")
+      client.dispose()
+      server.dispose()
+      return
+    end
+
+    h.assert_true(
+      client.read() is SSLError,
+      "data received after auth failure should not be readable")
+
+    h.assert_true(
+      client.receive("") is SSLAuthFail,
+      "the session should still report SSLAuthFail")
+
+    client.dispose()
+    server.dispose()
+
+class \nodoc\ iso _TestDTLSSendOnFailedSession is UnitTest
+  """
+  `send` on a failed session does not crash.
+
+  DTLS does not always queue alert bytes the way TLS does — a hostname
+  mismatch is detected after the handshake succeeds at the TLS layer, so
+  OpenSSL may have no alert to send. The test verifies that `send` is safe
+  to call and returns `None` when there is nothing queued.
+  """
+  fun name(): String => "net/dtls/DTLS.send/on_failed_session"
+
+  fun apply(h: TestHelper) =>
+    (let client, let server, let cr, _) =
+      try
+        let client_ctx =
+          _TestDTLSContext(h where authority = true, client_verify = true)?
+        let server_ctx = _TestDTLSContext(h where cert = true)?
+        _TestDTLSSessionPair.attempt(
+          h, client_ctx, server_ctx where hostname = "nomatch.example.com")?
+      else
+        h.fail("could not create a DTLS session pair")
+        return
+      end
+
+    h.assert_true(
+      cr is SSLAuthFail,
+      "client should report SSLAuthFail")
+
+    // Drain whatever send has — it may be alert bytes or None.
+    while true do
+      match \exhaustive\ client.send()
+      | let _: Array[U8] iso => None
+      | None => break
+      end
+    end
+
+    h.assert_true(
+      client.send() is None,
+      "send should return None once drained")
+
+    client.dispose()
+    server.dispose()
+
+class \nodoc\ iso _TestDTLSCloseFromReady is UnitTest
+  """
+  Calling `close` on a ready session queues a `close_notify` alert in the
+  output BIO.
+  """
+  fun name(): String => "net/dtls/DTLS.close/from_ready"
+
+  fun apply(h: TestHelper) =>
+    (let client, let server) =
+      try
+        _TestDTLSSessionPair(h)?
+      else
+        h.fail("could not establish a DTLS session pair")
+        return
+      end
+
+    h.assert_true(
+      client.send() is None,
+      "nothing queued before close")
+
+    client.close()
+
+    h.assert_true(
+      client.send() isnt None,
+      "close_notify should be queued in the output BIO")
+
+    client.dispose()
+    server.dispose()
+
+class \nodoc\ iso _TestDTLSCloseIdempotent is UnitTest
+  """
+  A second `close` call is a no-op — it produces no additional output.
+  """
+  fun name(): String => "net/dtls/DTLS.close/idempotent"
+
+  fun apply(h: TestHelper) =>
+    (let client, let server) =
+      try
+        _TestDTLSSessionPair(h)?
+      else
+        h.fail("could not establish a DTLS session pair")
+        return
+      end
+
+    client.close()
+
+    while true do
+      match \exhaustive\ client.send()
+      | let _: Array[U8] iso => None
+      | None => break
+      end
+    end
+
+    client.close()
+
+    h.assert_true(
+      client.send() is None,
+      "second close should produce no additional output")
+
+    client.dispose()
+    server.dispose()
+
+class \nodoc\ iso _TestDTLSCloseFromWrongStates is UnitTest
+  """
+  `close` is a no-op during handshake and after auth failure.
+
+  The SSL equivalent also tests close after SSLError, but DTLS silently drops
+  invalid datagrams per RFC 6347 rather than transitioning to SSLError, so
+  there is no clean way to reach that state from external input.
+  """
+  fun name(): String => "net/dtls/DTLS.close/from_wrong_states"
+
+  fun apply(h: TestHelper) =>
+    (let client, let server) =
+      try
+        _TestDTLSSessionPair.fresh(h)?
+      else
+        h.fail("could not create fresh sessions")
+        return
+      end
+
+    client.close()
+
+    h.assert_true(
+      client.receive("") is SSLAccepted,
+      "close during handshake should leave session still handshaking")
+
+    client.dispose()
+    server.dispose()
+
+    (let auth_client, let auth_server, let acr, _) =
+      try
+        _TestDTLSSessionPair.attempt(
+          h,
+          _TestDTLSContext(h where client_verify = true)?,
+          _TestDTLSContext(h where cert = true)?)?
+      else
+        h.fail("could not create an auth-fail session pair")
+        return
+      end
+
+    h.assert_true(
+      acr is SSLAuthFail,
+      "client should report SSLAuthFail")
+
+    auth_client.close()
+
+    h.assert_true(
+      auth_client.receive("") is SSLAuthFail,
+      "receive should still report SSLAuthFail after close")
+
+    auth_client.dispose()
+    auth_server.dispose()
+
+class \nodoc\ iso _TestDTLSCloseAfterDispose is UnitTest
+  """
+  `close` after `dispose` is a no-op.
+  """
+  fun name(): String => "net/dtls/DTLS.close/after_dispose"
+
+  fun apply(h: TestHelper) =>
+    (let client, let server) =
+      try
+        _TestDTLSSessionPair(h)?
+      else
+        h.fail("could not establish a DTLS session pair")
+        return
+      end
+
+    client.dispose()
+    client.close()
+
+    h.assert_true(
+      client.send() is None,
+      "close after dispose should not queue anything")
+
+    server.dispose()
+
+class \nodoc\ iso _TestDTLSPeerCloseNotifyDetected is UnitTest
+  """
+  When one session sends `close_notify`, the other detects it via `read` and
+  transitions to `SSLClosed`, not `SSLError`.
+  """
+  fun name(): String => "net/dtls/DTLS.read/peer_close_notify"
+
+  fun apply(h: TestHelper) =>
+    (let client, let server) =
+      try
+        _TestDTLSSessionPair(h)?
+      else
+        h.fail("could not establish a DTLS session pair")
+        return
+      end
+
+    client.close()
+
+    _TestDTLSTransfer(client, server)
+
+    match \exhaustive\ server.read()
+    | let _: Array[U8] iso =>
+      h.fail("server read produced data from a close_notify")
+    | None =>
+      h.fail("server should report SSLClosed, not None")
+    | SSLClosed => None
+    | SSLError =>
+      h.fail("server should report SSLClosed, not SSLError")
+    | InvalidOperation =>
+      h.fail("server should report SSLClosed, not InvalidOperation")
+    end
+
+    client.dispose()
+    server.dispose()
+
+class \nodoc\ iso _TestDTLSWriteBlockedInClosed is UnitTest
+  """
+  `write` raises an error in `SSLClosed`.
+  """
+  fun name(): String => "net/dtls/DTLS.write/blocked_in_closed"
+
+  fun apply(h: TestHelper) =>
+    (let client, let server) =
+      try
+        _TestDTLSSessionPair(h)?
+      else
+        h.fail("could not establish a DTLS session pair")
+        return
+      end
+
+    client.close()
+
+    let write_succeeded =
+      try
+        client.write("should fail")?
+        true
+      else
+        false
+      end
+
+    h.assert_false(
+      write_succeeded,
+      "write should raise an error in SSLClosed")
+
+    client.dispose()
+    server.dispose()
+
+class \nodoc\ iso _TestDTLSBidirectionalCloseRoundtrip is UnitTest
+  """
+  Full bidirectional shutdown: one side calls `close`, the other detects it
+  via `read` and calls `close` in response.
+  """
+  fun name(): String => "net/dtls/DTLS.close/bidirectional_roundtrip"
+
+  fun apply(h: TestHelper) =>
+    (let client, let server) =
+      try
+        _TestDTLSSessionPair(h)?
+      else
+        h.fail("could not establish a DTLS session pair")
+        return
+      end
+
+    client.close()
+
+    _TestDTLSTransfer(client, server)
+
+    let sr = server.read()
+
+    h.assert_true(
+      sr is SSLClosed,
+      "server should report SSLClosed after receiving client's close_notify")
+
+    server.close()
+
+    _TestDTLSTransfer(server, client)
+
+    let cr = client.read()
+
+    h.assert_true(
+      cr is SSLClosed,
+      "client should report SSLClosed")
+
+    client.dispose()
+    server.dispose()
+
+class \nodoc\ iso _TestDTLSWriteBlockedInClosing is UnitTest
+  """
+  `write` raises an error in `_DTLSClosing`.
+  """
+  fun name(): String => "net/dtls/DTLS.write/blocked_in_closing"
+
+  fun apply(h: TestHelper) =>
+    (let client, let server) =
+      try
+        _TestDTLSSessionPair(h)?
+      else
+        h.fail("could not establish a DTLS session pair")
+        return
+      end
+
+    client.close()
+
+    _TestDTLSTransfer(client, server)
+
+    let sr = server.read()
+
+    h.assert_true(
+      sr is SSLClosed,
+      "server should report SSLClosed after receiving peer's close_notify")
+
+    let write_succeeded =
+      try
+        server.write("should fail")?
+        true
+      else
+        false
+      end
+
+    h.assert_false(
+      write_succeeded,
+      "write should raise an error in _DTLSClosing")
+
+    client.dispose()
+    server.dispose()
+
+
