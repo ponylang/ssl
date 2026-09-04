@@ -76,8 +76,8 @@ class \nodoc\ iso _TestConstantTimeCompare is UnitTest
     h.assert_false(ConstantTimeCompare(s1, s2))
     h.assert_false(ConstantTimeCompare(s1, s3))
     h.assert_false(ConstantTimeCompare(s1, s4))
-    h.assert_false(ConstantTimeCompare(s1, s5))
-    h.assert_true(ConstantTimeCompare(s5, s6))
+    h.assert_false(ConstantTimeCompare[ByteSeq box](s1, s5))
+    h.assert_true(ConstantTimeCompare[ByteSeq box](s5, s6))
     h.assert_false(ConstantTimeCompare(s1, s6))
     h.assert_false(ConstantTimeCompare(s1, s7))
 

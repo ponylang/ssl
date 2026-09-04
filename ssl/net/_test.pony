@@ -261,7 +261,7 @@ class \nodoc\ iso _TestALPNProtocolListOffsetOfRoundtrip
 
   fun gen(): Generator[Array[String]] =>
     Generators.array_of[String](
-      Generators.ascii_printable(1, 20) where min = 1, max = 5)
+      Generators.ascii_printable(1, 20) where from = 1, to = 5)
 
   fun ref property(sample: Array[String], h: PropertyHelper) ? =>
     let list = _ALPNProtocolList.from_array(sample)?
@@ -4160,7 +4160,7 @@ class \nodoc\ iso _TestALPNProtocolListRoundTrip is Property1[Array[String]]
 
   fun gen(): Generator[Array[String]] =>
     Generators.array_of[String](
-      Generators.ascii_printable(1, 20) where min = 1, max = 5)
+      Generators.ascii_printable(1, 20) where from = 1, to = 5)
 
   fun ref property(sample: Array[String], h: PropertyHelper) ? =>
     let encoded = _ALPNProtocolList.from_array(sample)?
