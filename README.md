@@ -13,6 +13,7 @@ Production ready.
 * `corral fetch` to fetch your dependencies
 * `use "ssl/crypto"` to include the `crypto` sub-package
 * `use "ssl/net"` to include the `net` sub-package
+* Requires ponyc 0.70.0 or later.
 * `corral run -- ponyc` to compile your application
 
 ## Supported SSL versions
