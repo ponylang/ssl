@@ -89,8 +89,6 @@ make test ssl=3.0.x
 
 The `ssl=` flag is required; see `AGENTS.md` for the supported values.
 
-Tests load certificates from `assets/` relative to the working directory, so the test binary must run from the repository root. Running it from anywhere else fails 43 of the tests without naming the path that could not be opened.
-
 ## Pull request
 
 While we don't require that your pull request be a single commit, note that we will end up squashing all your commits into a single commit when we merge. While your PR is in review, we may ask for additional changes, please do not squash those commits while the review is underway. We ask that you not squash while a review is underway as it can make it hard to follow what is going on.

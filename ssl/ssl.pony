@@ -1,5 +1,5 @@
 """
 # SSL
 
-Pony bindings for OpenSSL and LibreSSL.
+Pony cryptographic primitives wrapping OpenSSL and LibreSSL.
 """
