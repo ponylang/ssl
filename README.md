@@ -75,11 +75,29 @@ brew update
 brew install libressl
 ```
 
+Then tell ponyc where the library is. Either set `PONYPATH`:
+
+```bash
+# Apple Silicon
+export PONYPATH=/opt/homebrew/opt/libressl/lib
+
+# Intel
+export PONYPATH=/usr/local/opt/libressl/lib
+```
+
+Or pass `--path` when compiling:
+
+```bash
+corral run -- ponyc -Dlibressl --path /opt/homebrew/opt/libressl/lib
+```
+
 #### Installing on macOS with MacPorts
 
 ```bash
 sudo port install libressl
 ```
+
+You may need to pass `--path` pointing at MacPorts' library directory when compiling.
 
 ### Installing on RPM based Linux distributions with dnf
 

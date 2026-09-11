@@ -1,5 +1,3 @@
-use "path:/usr/local/opt/libressl/lib" if osx and x86
-use "path:/opt/homebrew/opt/libressl/lib" if osx and arm
 use "lib:crypto"
 
 use @RAND_bytes[I32](buf: Pointer[U8] tag, num: I32)
