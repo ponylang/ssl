@@ -12,6 +12,7 @@ All notable changes to this project will be documented in this file. This projec
 
 ### Changed
 
+- Remove hardcoded brew LibreSSL paths ([PR #171](https://github.com/ponylang/ssl/pull/171))
 
 ## [6.0.0] - 2026-09-11
 
