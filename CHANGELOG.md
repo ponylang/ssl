@@ -12,6 +12,7 @@ All notable changes to this project will be documented in this file. This projec
 
 ### Changed
 
+- Remove net subpackage ([PR #170](https://github.com/ponylang/ssl/pull/170))
 
 ## [5.0.0] - 2026-09-04
 
