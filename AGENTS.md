@@ -51,8 +51,6 @@ make lint                            # pony-lint the sources; no ssl= needed
 | `1.1.x` | OpenSSL 1.1.x |
 | `libressl` | LibreSSL |
 
-Windows (`make.ps1`) always uses LibreSSL, with the define hardcoded and prebuilt binaries downloaded by `.ci-scripts/windows-install-libressl.ps1`.
-
 ## `_final`
 
 Pony registers a `_final` when it allocates the object, not when the constructor returns, so `_final` runs even on an object whose constructor raised. A pointer field that `_final` frees needs a null default at its declaration, or it frees whatever was left in the recycled heap slot.
