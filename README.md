@@ -1,6 +1,6 @@
 # ssl
 
-Pony wrappers for OpenSSL and LibreSSL.
+Pony cryptographic primitives wrapping OpenSSL and LibreSSL.
 
 ## Status
 
@@ -12,8 +12,7 @@ Production ready.
 * `corral add github.com/ponylang/ssl.git --version 5.0.0`
 * `corral fetch` to fetch your dependencies
 * `use "ssl/crypto"` to include the `crypto` sub-package
-* `use "ssl/net"` to include the `net` sub-package
-* Requires ponyc 0.70.0 or later.
+* Requires ponyc 0.72.0 or later.
 * `corral run -- ponyc` to compile your application
 
 ## Supported SSL versions

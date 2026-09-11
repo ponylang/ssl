@@ -2,11 +2,10 @@
   "deps": [],
   "packages": [
     "ssl",
-    "ssl/crypto",
-    "ssl/net"
+    "ssl/crypto"
   ],
   "info": {
-    "description": "OpenSSL and LibreSSL bindings for Pony",
+    "description": "Cryptographic primitives wrapping OpenSSL and LibreSSL for Pony",
     "homepage": "https://github.com/ponylang/ssl",
     "license": "BSD-2-Clause",
     "documentation_url": "https://ponylang.github.io/ssl",

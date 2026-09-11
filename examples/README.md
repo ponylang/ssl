@@ -1,9 +1,8 @@
 # Examples
 
 Each subdirectory is a self-contained Pony program demonstrating a
-different part of the ssl library. Ordered from simplest to most
-involved: the hashing examples come first, the SSL networking example
-follows.
+different part of the ssl library. The hashing examples show the
+cryptographic primitives from `ssl/crypto`.
 
 ## [hash-fn](hash-fn/)
 
@@ -20,13 +19,3 @@ Hashes data in chunks using the streaming `Digest` API. Creates a
 finalizes with `final()` to produce the hash. Also demonstrates
 `Digest.shake256(n)` for variable-length output on OpenSSL 3.0.x and
 4.0.x, guarded by an `ifdef`.
-
-## [ssl-client-server](ssl-client-server/)
-
-Runs a TLS client and server in the same process, exchanging a few
-messages over a loopback TCP connection. Demonstrates setting up an
-`SSLContext` with `set_authority`, `set_cert`, and verification toggled
-off, then wrapping both sides of a `TCPConnection` with `SSLConnection`
-from `ssl/net`. Requires an `assets/cert.pem` and `assets/key.pem`
-alongside the example — see the source comments for how the relative
-paths are resolved.
